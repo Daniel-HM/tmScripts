@@ -1,9 +1,11 @@
 // ==UserScript==
 // @name         Pakbonlijst tweaks
 // @namespace    http://tampermonkey.net/
-// @version      0.2
+// @version      0.3
 // @description  Pakbonlijst tweaks :-)
 // @author       Daniël
+// @downloadURL  https://raw.githubusercontent.com/Daniel-HM/tmScripts/main/pbList.js
+// @updateURL    https://raw.githubusercontent.com/Daniel-HM/tmScripts/main/pbList.js
 // @match        file:///C:/Users/d/Downloads/Greasemonkey/Pakbon%20lijst/Pakbonnen.html
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=undefined.
 // @require      https://code.jquery.com/jquery-3.6.3.min.js
