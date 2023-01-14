@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pakbonlijst tweaks
 // @namespace    http://tampermonkey.net/
-// @version      0.1
+// @version      0.2
 // @description  Pakbonlijst tweaks :-)
 // @author       Daniël
 // @match        file:///C:/Users/d/Downloads/Greasemonkey/Pakbon%20lijst/Pakbonnen.html
@@ -22,7 +22,7 @@
     var zoekDeelsVerwerkt = document.createElement("button");
     var zoekVerwerkt = document.createElement("button");
 
-    createButton(zoekOpen, "Open", "O", headerDiv);
+    createButton(zoekOpen, "Opeasddsaasdadsas", "O", headerDiv);
     createButton(zoekDeelsVerwerkt, "Deels Verwerkt", "D", headerDiv);
     createButton(zoekVerwerkt, "Verwerkt", "V", headerDiv);
 
