@@ -1,12 +1,13 @@
 // ==UserScript==
 // @name         Pakbonlijst tweaks
 // @namespace    http://tampermonkey.net/
-// @version      0.3
+// @version      0.4
 // @description  Pakbonlijst tweaks :-)
 // @author       Daniël
 // @downloadURL  https://raw.githubusercontent.com/Daniel-HM/tmScripts/main/pbList.js
 // @updateURL    https://raw.githubusercontent.com/Daniel-HM/tmScripts/main/pbList.js
 // @match        file:///C:/Users/d/Downloads/Greasemonkey/Pakbon%20lijst/Pakbonnen.html
+// @match        https://rs-intratuin.axi.nl/ordsp/f?p=ONTVANGEN:5*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=undefined.
 // @require      https://code.jquery.com/jquery-3.6.3.min.js
 // @grant        none
