@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         EZ Verwerken
-// @namespace    http://tampermonkey.net/
+// @namespace    ITM
 // @version      0.2
 // @description  Pakbon verwerken met 1 klik op de knop :-)
 // @author       Daniël

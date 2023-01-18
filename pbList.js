@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Pakbonlijst tweaks
-// @namespace    http://tampermonkey.net/
+// @namespace    ITM
 // @version      0.4
 // @description  Pakbonlijst tweaks :-)
 // @author       Daniël
@@ -25,7 +25,7 @@
     var zoekDeelsVerwerkt = document.createElement("button");
     var zoekVerwerkt = document.createElement("button");
 
-    createButton(zoekOpen, "Opeasddsaasdadsas", "O", headerDiv);
+    createButton(zoekOpen, "Open", "O", headerDiv);
     createButton(zoekDeelsVerwerkt, "Deels Verwerkt", "D", headerDiv);
     createButton(zoekVerwerkt, "Verwerkt", "V", headerDiv);
 
