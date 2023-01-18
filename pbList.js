@@ -17,7 +17,7 @@
 (function() {
     'use strict';
     // Form tijdelijk disabled - in prod verwijderen
-    $("#wwvFlowForm").attr("action","#");
+    // $("#wwvFlowForm").attr("action","#");
     // --
 
     var headerDiv = $(".t-Region-title")[1].parentNode;
