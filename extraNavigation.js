@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Extra links in nav bar
 // @namespace    ITM
-// @version      0.1
+// @version      1.0
 // @description  Is sneller, yay efficientie! :-)
 // @author       Daniël
 // @downloadURL  https://raw.githubusercontent.com/Daniel-HM/tmScripts/main/extraNavigation.js
