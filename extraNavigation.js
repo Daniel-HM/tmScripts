@@ -7,7 +7,7 @@
 // @downloadURL  https://raw.githubusercontent.com/Daniel-HM/tmScripts/main/extraNavigation.js
 // @updateURL    https://raw.githubusercontent.com/Daniel-HM/tmScripts/main/extraNavigation.js
 // @match        file:///C:/Users/d/Desktop/Tampermonkey/paginas/Omzet%201%20pagina/Verkoopresultaten.html
-// @match        https://rs-intratuin.axi.nl/ordsp/*
+// @match        https://*.axi.nl/ordsp/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=undefined.
 // @grant        none
 // ==/UserScript==
@@ -35,29 +35,39 @@
         // Define links
         const links = [
             {
-                text: 'Artikels',
-                href: '#',
+                text: 'Home',
+                href: '/ordsp/f?p=AXI_UT_RS:HOME:9738124763909::::::NO&amp;c=1826474367392170',
+                icon: '🏠'
+            },
+            {
+                text: 'Artikelen',
+                href: '/ordsp/f?p=ARTIKEL_ARTIKELEN_RS:1:7789977464489::NO::::&amp;c=ITN',
                 icon: '🛍️'
             },
             {
-                text: 'Leveranciers',
-                href: '#',
-                icon: '🏭'
+                text: 'Interfiliaal',
+                href: '/ordsp/f?p=INTERFILIAAL_RS:1:7789977464489::NO::::&amp;c=ITN',
+                icon: '🚚'
             },
             {
                 text: 'Orders',
-                href: '#',
+                href: '/ordsp/f?p=ORDERS_WEEKORDERS:9:7789977464489::NO::::&amp;c=ITN',
                 icon: '🛒'
             },
             {
-                text: 'Pakbonnen',
-                href: '#',
-                icon: '\u{1F4C4}'
+                text: 'Ontvangen',
+                href: '/ordsp/f?p=ONTVANGEN:1:7789977464489::NO::::&amp;c=ITN',
+                icon: '📥'
             },
             {
-                text: 'Transacties',
-                href: '#',
-                icon: '💰'
+                text: 'Klantorders',
+                href: '/ordsp/f?p=KLANTORDER:4:7789977464489::NO:&amp;c=ITN',
+                icon: '📝'
+            },
+            {
+                text: 'Voorraad',
+                href: '/ordsp/f?p=VOORRAADACTUEEL_RS:1:7789977464489::NO::::&amp;c=ITN',
+                icon: '📊'
             }
         ];
 
@@ -95,6 +105,9 @@
         // Append the navigation to the header
         headerDiv.prepend(navContainer);
     }
+
+    $('.t-Header-logo-link').empty();
+    $('.t-Footer-apex').empty();
 
     // Wait for the page to load
     $(document).ready(addHeaderLinks);
