@@ -1,12 +1,12 @@
 // ==UserScript==
 // @name         Extra links in nav bar
 // @namespace    ITM
-// @version      1.0
+// @version      1.1
 // @description  Is sneller, yay efficientie! :-)
 // @author       Daniël
 // @downloadURL  https://raw.githubusercontent.com/Daniel-HM/tmScripts/main/extraNavigation.js
 // @updateURL    https://raw.githubusercontent.com/Daniel-HM/tmScripts/main/extraNavigation.js
-// @match        file:///C:/Users/d/Desktop/Tampermonkey/paginas/Omzet%201%20pagina/Verkoopresultaten.html
+// @match        file:///C:/Users/d/Desktop/Tampermonkey/*.html
 // @match        https://*.axi.nl/ordsp/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=undefined.
 // @grant        none
@@ -41,32 +41,32 @@
             },
             {
                 text: 'Artikelen',
-                href: '/ordsp/f?p=ARTIKEL_ARTIKELEN_RS:1:7789977464489::NO::::&amp;c=ITN',
+                href: 'https://rs-intratuin.axi.nl/ordsp/f?p=ARTIKEL_ARTIKELEN_RS:1:7789977464489::NO::::&amp;c=ITN',
                 icon: '🛍️'
             },
             {
                 text: 'Interfiliaal',
-                href: '/ordsp/f?p=INTERFILIAAL_RS:1:7789977464489::NO::::&amp;c=ITN',
+                href: 'https://rs-intratuin.axi.nl/ordsp/f?p=INTERFILIAAL_RS:1:7789977464489::NO::::&amp;c=ITN',
                 icon: '🚚'
             },
             {
                 text: 'Orders',
-                href: '/ordsp/f?p=ORDERS_WEEKORDERS:9:7789977464489::NO::::&amp;c=ITN',
+                href: 'https://rs-intratuin.axi.nl/ordsp/f?p=ORDERS_WEEKORDERS:9:7789977464489::NO::::&amp;c=ITN',
                 icon: '🛒'
             },
             {
                 text: 'Ontvangen',
-                href: '/ordsp/f?p=ONTVANGEN:1:7789977464489::NO::::&amp;c=ITN',
+                href: 'https://rs-intratuin.axi.nl/ordsp/f?p=ONTVANGEN:1:7789977464489::NO::::&amp;c=ITN',
                 icon: '📥'
             },
             {
                 text: 'Klantorders',
-                href: '/ordsp/f?p=KLANTORDER:4:7789977464489::NO:&amp;c=ITN',
+                href: 'https://rs-intratuin.axi.nl/ordsp/f?p=KLANTORDER:4:7789977464489::NO:&amp;c=ITN',
                 icon: '📝'
             },
             {
                 text: 'Voorraad',
-                href: '/ordsp/f?p=VOORRAADACTUEEL_RS:1:7789977464489::NO::::&amp;c=ITN',
+                href: 'https://rs-intratuin.axi.nl/ordsp/f?p=VOORRAADACTUEEL_RS:1:7789977464489::NO::::&amp;c=ITN',
                 icon: '📊'
             }
         ];
@@ -101,13 +101,13 @@
 
             navContainer.append(linkElement);
         });
-
-        // Append the navigation to the header
-        headerDiv.prepend(navContainer);
+        if ($('.t-Region-title').first().text() !== "Waar gaat u werken?") {
+            // Append the navigation to the header
+            headerDiv.prepend(navContainer);
+            $('.t-Header-logo-link').empty();
+            $('.t-Footer-apex').empty();
+        }
     }
-
-    $('.t-Header-logo-link').empty();
-    $('.t-Footer-apex').empty();
 
     // Wait for the page to load
     $(document).ready(addHeaderLinks);
