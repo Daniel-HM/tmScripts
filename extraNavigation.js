@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Extra links in nav bar
 // @namespace    ITM
-// @version      1.1
+// @version      1.2
 // @description  Is sneller, yay efficientie! :-)
 // @author       Daniël
 // @downloadURL  https://raw.githubusercontent.com/Daniel-HM/tmScripts/main/extraNavigation.js
@@ -31,42 +31,56 @@
                 'margin': '10px 0'
             }
         });
+        function extractSessionId() {
+            const url = window.location.href;
+
+            // Use a more specific regex that targets the number after the third colon
+            const matches = url.match(/:[0-9]+:([0-9]{13,14})::/);
+
+            if (matches && matches[1]) {
+                return matches[1];
+            }
+
+            return null;
+        }
+
+        const sessionId = extractSessionId();
 
         // Define links
         const links = [
             {
                 text: 'Home',
-                href: '/ordsp/f?p=AXI_UT_RS:HOME:9738124763909::::::NO&amp;c=1826474367392170',
+                href: 'https://rs-intratuin.axi.nl/ordsp/f?p=AXI_UT_RS:HOME:'+sessionId+'::::::NO&c=1826474367392170',
                 icon: '🏠'
             },
             {
                 text: 'Artikelen',
-                href: 'https://rs-intratuin.axi.nl/ordsp/f?p=ARTIKEL_ARTIKELEN_RS:1:7789977464489::NO::::&amp;c=ITN',
+                href: 'https://rs-intratuin.axi.nl/ordsp/f?p=ARTIKEL_ARTIKELEN_RS:1:'+sessionId+'::NO::::&c=ITN',
                 icon: '🛍️'
             },
             {
                 text: 'Interfiliaal',
-                href: 'https://rs-intratuin.axi.nl/ordsp/f?p=INTERFILIAAL_RS:1:7789977464489::NO::::&amp;c=ITN',
+                href: 'https://rs-intratuin.axi.nl/ordsp/f?p=INTERFILIAAL_RS:1:'+sessionId+'::NO::::&c=ITN',
                 icon: '🚚'
             },
             {
                 text: 'Orders',
-                href: 'https://rs-intratuin.axi.nl/ordsp/f?p=ORDERS_WEEKORDERS:9:7789977464489::NO::::&amp;c=ITN',
+                href: 'https://rs-intratuin.axi.nl/ordsp/f?p=ORDERS_WEEKORDERS:9:'+sessionId+'::NO::::&c=ITN',
                 icon: '🛒'
             },
             {
                 text: 'Ontvangen',
-                href: 'https://rs-intratuin.axi.nl/ordsp/f?p=ONTVANGEN:1:7789977464489::NO::::&amp;c=ITN',
+                href: 'https://rs-intratuin.axi.nl/ordsp/f?p=ONTVANGEN:1:'+sessionId+'::NO::::&c=ITN',
                 icon: '📥'
             },
             {
                 text: 'Klantorders',
-                href: 'https://rs-intratuin.axi.nl/ordsp/f?p=KLANTORDER:4:7789977464489::NO:&amp;c=ITN',
+                href: 'https://rs-intratuin.axi.nl/ordsp/f?p=KLANTORDER:4:'+sessionId+'::NO:&c=ITN',
                 icon: '📝'
             },
             {
                 text: 'Voorraad',
-                href: 'https://rs-intratuin.axi.nl/ordsp/f?p=VOORRAADACTUEEL_RS:1:7789977464489::NO::::&amp;c=ITN',
+                href: 'https://rs-intratuin.axi.nl/ordsp/f?p=VOORRAADACTUEEL_RS:1:'+sessionId+'::NO::::&c=ITN',
                 icon: '📊'
             }
         ];
