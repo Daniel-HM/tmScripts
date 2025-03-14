@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Extra links in nav bar
 // @namespace    ITM
-// @version      1.2
+// @version      1.3
 // @description  Is sneller, yay efficientie! :-)
 // @author       Daniël
 // @downloadURL  https://raw.githubusercontent.com/Daniel-HM/tmScripts/main/extraNavigation.js
@@ -32,16 +32,22 @@
             }
         });
         function extractSessionId() {
+            let savedSessionId = GM_getValue("savedSessionId");
+
             const url = window.location.href;
 
             // Use a more specific regex that targets the number after the third colon
-            const matches = url.match(/:[0-9]+:([0-9]{13,14})::/);
+            const matches = url.match(/([0-9]{11,14})::/);
 
             if (matches && matches[1]) {
+                if(matches[1] === savedSessionId){
+                    return matches[1];
+                }
+                GM_setValue("savedSessionId", matches[1]);
                 return matches[1];
             }
 
-            return null;
+            return savedSessionId;
         }
 
         const sessionId = extractSessionId();
