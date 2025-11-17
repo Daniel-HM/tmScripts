@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Weekomzet
 // @namespace    ITM
-// @version      0.5
+// @version      0.6
 // @description  Weekomzet vergelijken met vorig jaar
 // @author       Daniël
 // @downloadURL     https://raw.githubusercontent.com/Daniel-HM/tmScripts/main/pbVerwerken.js
@@ -188,6 +188,15 @@
         differenceDisplay.style.display = 'inline-block';
     }
 
+    // Check if heading contains date range (week view)
+    function isWeekView() {
+        var headingText = headingElement.textContent.trim();
+        // Check if heading contains a date range pattern like "18-01-2023 - 24-01-2023"
+        // Pattern: DD-MM-YYYY - DD-MM-YYYY or DD-MM-YYYY-DD-MM-YYYY
+        var dateRangePattern = /\d{2}-\d{2}-\d{4}\s*-\s*\d{2}-\d{2}-\d{4}/;
+        return dateRangePattern.test(headingText);
+    }
+
     // Assemble everything
     omzetContainer.appendChild(omzetDisplay);
     omzetContainer.appendChild(omzetField);
@@ -196,10 +205,9 @@
 
     headingElement.appendChild(omzetContainer);
 
-    // Show/hide based on radio selection
+    // Show/hide based on heading content
     function updateVisibility() {
-        var dezeWeekRadio = document.getElementById('P2_PERIODE_1');
-        if (dezeWeekRadio && dezeWeekRadio.checked) {
+        if (isWeekView()) {
             omzetContainer.style.display = 'inline-flex';
             // If there's a saved value, calculate difference immediately
             if (savedOmzet) {
@@ -213,11 +221,30 @@
     // Check initial state
     updateVisibility();
 
-    // Listen for radio button changes
-    var radioButtons = document.querySelectorAll('input[name="P2_PERIODE"]');
-    radioButtons.forEach(function(radio) {
-        radio.addEventListener('change', updateVisibility);
+    // Watch for changes to the heading text (when search results update)
+    var headingObserver = new MutationObserver(function(mutations) {
+        mutations.forEach(function(mutation) {
+            if (mutation.type === 'childList' || mutation.type === 'characterData') {
+                updateVisibility();
+            }
+        });
     });
+
+    // Observe the heading for text changes
+    headingObserver.observe(headingElement, {
+        childList: true,
+        characterData: true,
+        subtree: true
+    });
+
+    // Also listen for when the search button is clicked
+    var searchButton = document.getElementById('B12672992078933077063');
+    if (searchButton) {
+        searchButton.addEventListener('click', function() {
+            // Wait a bit for the page to update, then check visibility
+            setTimeout(updateVisibility, 500);
+        });
+    }
 
     // Helper functions
     function getISOWeekNumber(date = new Date()) {
