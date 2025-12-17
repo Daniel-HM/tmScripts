@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Intratuin Peppol Connection Automation
 // @namespace    http://tampermonkey.net/
-// @version      2.6
+// @version      2.7
 // @description  Automate Peppol connection for business customers with phone validation and detailed tracking
 // @author       Daniel
 // @match        https://rs-intratuin.axi.nl/ordsp/f?p=108011:1:*
@@ -559,7 +559,8 @@
     async function navigateToClient(clientNumber) {
         log(`🔄 Navigating back to search to re-open client: ${clientNumber}`);
 
-        const sessionId = window.location.href.match(/:(\d+):/)?.[1];
+        const match = window.location.href.match(/f\?p=\d+:\d+:(\d+)/);
+        const sessionId = match ? match[1] : null;
         if (sessionId) {
             const searchUrl = `https://rs-intratuin.axi.nl/ordsp/f?p=108011:1:${sessionId}`;
             log(`🔗 Navigating to: ${searchUrl}`);
@@ -577,7 +578,9 @@
 
         await delay(CONFIG.delayBeforeReturnToSearch);
 
-        const sessionId = window.location.href.match(/:(\d+):/)?.[1];
+        const match = window.location.href.match(/f\?p=\d+:\d+:(\d+)/);
+        const sessionId = match ? match[1] : null;
+
         if (sessionId) {
             const searchUrl = `https://rs-intratuin.axi.nl/ordsp/f?p=108011:1:${sessionId}`;
             log(`🔗 Navigating to: ${searchUrl}`);
@@ -615,7 +618,7 @@
 
         panel.innerHTML = `
             <div style="border-bottom: 2px solid #2563eb; padding-bottom: 10px; margin-bottom: 10px;">
-                <h3 style="margin: 0; color: #2563eb; font-size: 16px;">☁️ Peppol Automation v2.2</h3>
+                <h3 style="margin: 0; color: #2563eb; font-size: 16px;">☁️ Peppol Automation v2.7</h3>
             </div>
             <div style="margin-bottom: 10px; font-size: 13px;">
                 <strong>Progress:</strong> <span id="peppol-progress">0/0</span><br>
