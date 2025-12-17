@@ -3,6 +3,8 @@
 // @namespace    http://tampermonkey.net/
 // @version      2.0
 // @description  *Magic*
+// @downloadURL  https://raw.githubusercontent.com/Daniel-HM/tmScripts/refs/heads/main/peppol.js
+// @updateURL    https://raw.githubusercontent.com/Daniel-HM/tmScripts/refs/heads/main/peppol.js
 // @match        https://rs-intratuin.axi.nl/ordsp/f?p=108011:1:*
 // @match        https://rs-intratuin.axi.nl/ordsp/f?p=108011:100:*
 // @grant        GM_setValue
@@ -33,10 +35,10 @@
         searchPageUrl: 'https://rs-intratuin.axi.nl/ordsp/f?p=108011:1:',
 
         // Delays (in milliseconds)
-        delayAfterSearch: 2000,
-        delayBeforeConnect: 500,
-        delayAfterConnect: 2500,
-        delayBetweenChecks: 1500
+        delayAfterSearch: 3000,
+        delayBeforeConnect: 1000,
+        delayAfterConnect: 3500,
+        delayBetweenChecks: 2500
     };
 
     // Result tracking categories
