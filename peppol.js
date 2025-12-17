@@ -37,11 +37,11 @@
         searchPageUrl: 'https://rs-intratuin.axi.nl/ordsp/f?p=108011:1:',
 
         // Delays (in milliseconds)
-        delayAfterSearch: 500,
-        delayBeforeConnect: 100,
+        delayAfterSearch: 1000,
+        delayBeforeConnect: 300,
         delayAfterConnect: 500,
         delayBetweenChecks: 500,
-        delayBeforeReturnToSearch: 300,
+        delayBeforeReturnToSearch: 500,
 
         // Lock timeout (milliseconds)
         processingLockTimeout: 30000 // 30 seconds
