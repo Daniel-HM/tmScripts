@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Intratuin Peppol Connection Automation
 // @namespace    http://tampermonkey.net/
-// @version      2.2.2
+// @version      2.3
 // @description  Automate Peppol connection for business customers with phone validation and detailed tracking
 // @author       Daniel
 // @match        https://rs-intratuin.axi.nl/ordsp/f?p=108011:1:*
@@ -814,6 +814,9 @@ or
         log(`🔒 isProcessing: ${STATE.isProcessing}`);
         log(`🔄 needsRecheck: ${STATE.needsRecheck}`);
         log(`📊 Current index: ${STATE.currentIndex}/${STATE.clientList.length}`);
+
+        STATE.isProcessing = false;
+        log('🔓 Processing lock cleared on page load');
 
         // Check and clear stale processing lock
         const wasStale = checkAndClearStaleLock();
