@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Intratuin Peppol Connection Automation
 // @namespace    http://tampermonkey.net/
-// @version      2.5
+// @version      2.6
 // @description  Automate Peppol connection for business customers with phone validation and detailed tracking
 // @author       Daniel
 // @match        https://rs-intratuin.axi.nl/ordsp/f?p=108011:1:*
@@ -555,22 +555,22 @@
         }
     }
 
-    // Navigate to a specific client
+// Navigate to a specific client
     async function navigateToClient(clientNumber) {
         log(`🔄 Navigating back to search to re-open client: ${clientNumber}`);
 
         const sessionId = window.location.href.match(/:(\d+):/)?.[1];
-        if (!sessionId) {
+        if (sessionId) {
+            const searchUrl = `https://rs-intratuin.axi.nl/ordsp/f?p=108011:1:${sessionId}`;
+            log(`🔗 Navigating to: ${searchUrl}`);
+            window.location.href = searchUrl;
+        } else {
             log('⚠️ Could not extract session ID, reloading page');
             window.location.reload();
-            return;
         }
-
-        // Go to search page first
-        window.location.href = `${CONFIG.searchPageUrl}${sessionId}`;
     }
 
-    // Return to search page
+// Return to search page
     async function returnToSearch() {
         log('🔙 Returning to search page');
         updateControlPanel();
@@ -579,7 +579,9 @@
 
         const sessionId = window.location.href.match(/:(\d+):/)?.[1];
         if (sessionId) {
-            window.location.href = `${CONFIG.searchPageUrl}${sessionId}`;
+            const searchUrl = `https://rs-intratuin.axi.nl/ordsp/f?p=108011:1:${sessionId}`;
+            log(`🔗 Navigating to: ${searchUrl}`);
+            window.location.href = searchUrl;
         } else {
             log('⚠️ Could not extract session ID, reloading');
             window.location.reload();
