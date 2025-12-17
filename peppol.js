@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Intratuin Peppol Connection Automation
 // @namespace    http://tampermonkey.net/
-// @version      2.3
+// @version      2.4
 // @description  Automate Peppol connection for business customers with phone validation and detailed tracking
 // @author       Daniel
 // @match        https://rs-intratuin.axi.nl/ordsp/f?p=108011:1:*
@@ -278,22 +278,23 @@
             }
 
             const clientNumber = getCurrentClientNumber();
-
-// Check if we just processed this client (prevent duplicate)
-            if (STATE.lastProcessedClient === clientNumber) {
-                log(`⏭️ Client ${clientNumber} was just processed, skipping duplicate`);
-                STATE.isProcessing = false;
-                return;
-            }
-
-// Check if results are already visible (means we already searched)
             const resultsVisible = document.querySelector(CONFIG.firstResultLink);
-            if (resultsVisible) {
-                log(`✓ Search results already visible for ${clientNumber}, clicking first result`);
-                STATE.isProcessing = false;
+            if (STATE.lastProcessedClient === clientNumber && resultsVisible) {
+                log(`✓ Results already visible for ${clientNumber}, clicking first result`);
+                STATE.lastProcessedClient = ''; // Clear so we can move to next
                 await delay(500);
                 resultsVisible.click();
                 log('✓ Clicked first result, navigating to detail');
+                return;
+            }
+
+            if (STATE.lastProcessedClient === clientNumber && !resultsVisible) {
+                log(`⏭️ Already searched ${clientNumber} but no results, skipping`);
+                STATE.currentIndex++;
+                STATE.lastProcessedClient = '';
+                STATE.isProcessing = false;
+                await delay(1000);
+                window.location.reload();
                 return;
             }
 
