@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Intratuin Peppol Connection Automation
 // @namespace    http://tampermonkey.net/
-// @version      2.8
+// @version      2.9
 // @description  Automate Peppol connection for business customers with phone validation and detailed tracking
 // @author       Daniel
 // @match        https://rs-intratuin.axi.nl/ordsp/f?p=108011:1:*
@@ -37,10 +37,10 @@
         searchPageUrl: 'https://rs-intratuin.axi.nl/ordsp/f?p=108011:1:',
 
         // Delays (in milliseconds)
-        delayAfterSearch: 1000,
+        delayAfterSearch: 500,
         delayBeforeConnect: 300,
-        delayAfterConnect: 1000,
-        delayBetweenChecks: 800,
+        delayAfterConnect: 500,
+        delayBetweenChecks: 500,
         delayBeforeReturnToSearch: 500,
 
         // Lock timeout (milliseconds)
@@ -652,9 +652,6 @@
         const counts = getResultCounts();
 
         panel.innerHTML = `
-            <div style="border-bottom: 2px solid #2563eb; padding-bottom: 10px; margin-bottom: 10px;">
-                <h3 style="margin: 0; color: #2563eb; font-size: 16px;">☁️ Peppol Automation v2.8</h3>
-            </div>
             <div style="margin-bottom: 10px; font-size: 13px;">
                 <strong>Progress:</strong> <span id="peppol-progress">0/0</span><br>
                 <div style="margin-top: 5px;">
@@ -662,14 +659,13 @@
                 </div>
             </div>
             <div style="margin-bottom: 10px; font-size: 12px; line-height: 1.6;">
-                <strong style="color: #16a34a;">✅ Connected:</strong> <span id="peppol-success">${counts.success}</span><br>
-                <strong style="color: #9ca3af;">⏭️ No BTW:</strong> <span id="peppol-skipped-btw">${counts.skippedNoBtw}</span><br>
-                <strong style="color: #9ca3af;">⏭️ Already Connected:</strong> <span id="peppol-skipped-connected">${counts.alreadyConnected}</span><br>
-                <strong style="color: #f59e0b;">⚠️ Not Registered:</strong> <span id="peppol-not-registered">${counts.notRegistered}</span><br>
-                <strong style="color: #dc2626;">❌ Errors:</strong> <span id="peppol-errors">${counts.errors}</span><br>
+                <strong style="color: #16a34a;">Verbonden:</strong> <span id="peppol-success">${counts.success}</span><br>
+                <strong style="color: #9ca3af;">Geen zakelijke klant:</strong> <span id="peppol-skipped-btw">${counts.skippedNoBtw}</span><br>
+                <strong style="color: #9ca3af;">⏭Reeds verbonden:</strong> <span id="peppol-skipped-connected">${counts.alreadyConnected}</span><br>
+                <strong style="color: #f59e0b;">Klant geen Peppol:</strong> <span id="peppol-not-registered">${counts.notRegistered}</span><br>
+                <strong style="color: #dc2626;">Errors:</strong> <span id="peppol-errors">${counts.errors}</span><br>
                 <hr style="margin: 8px 0;">
                 <strong>Status:</strong> <span id="peppol-status">Idle</span><br>
-                <strong>Lock:</strong> <span id="peppol-processing-status">🔓 Unlocked</span>
             </div>
             <div style="display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 5px;">
                 <button id="peppol-start" style="flex: 1; padding: 8px; background: #16a34a; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px;">▶ Start</button>
