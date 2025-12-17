@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Intratuin Peppol Connection Automation
 // @namespace    http://tampermonkey.net/
-// @version      2.1
+// @version      2.2
 // @description  Automate Peppol connection for business customers with phone validation and detailed tracking
 // @author       Daniel
 // @match        https://rs-intratuin.axi.nl/ordsp/f?p=108011:1:*
@@ -26,22 +26,25 @@
         firstResultLink: 'td.t-Report-cell a[href*="P100_DEKEYCE"]',
 
         // Detail page (page 100)
-        phoneField1: '#P100_DEMBLNR', // Mobile number
-        phoneField2: '#P100_DETELNR', // Telephone number
-        btwField: '#P100_DEKLBTW', // BTW nummer
+        phoneField1: '#P100_DEMBLNR',
+        phoneField2: '#P100_DETELNR',
+        btwField: '#P100_DEKLBTW',
         peppolConnectButton: 'button[onclick*="KOPPELEN_AAN_PEPPOL"]',
-        peppolStatusField: '#P100_USES_PEPPOL_DISPLAY', // "Ja" or "Nee"
-        peppolMessageField: '#P100_PEPPOL_MESSAGE_DISPLAY', // Error message
+        peppolStatusField: '#P100_USES_PEPPOL_DISPLAY',
+        peppolMessageField: '#P100_PEPPOL_MESSAGE_DISPLAY',
 
         // URLs
         searchPageUrl: 'https://rs-intratuin.axi.nl/ordsp/f?p=108011:1:',
 
-        // Delays (in milliseconds) - increased for APEX
+        // Delays (in milliseconds)
         delayAfterSearch: 3000,
         delayBeforeConnect: 800,
         delayAfterConnect: 3000,
         delayBetweenChecks: 2000,
-        delayBeforeReturnToSearch: 1500
+        delayBeforeReturnToSearch: 1500,
+
+        // Lock timeout (milliseconds)
+        processingLockTimeout: 30000 // 30 seconds
     };
 
     // Debug logging helper
@@ -78,9 +81,16 @@
         get processedCount() { return GM_getValue('peppol_processedCount', 0); },
         set processedCount(val) { GM_setValue('peppol_processedCount', val); },
 
-        // Processing lock to prevent concurrent execution
+        // Processing lock with timestamp
         get isProcessing() { return GM_getValue('peppol_isProcessing', false); },
-        set isProcessing(val) { GM_setValue('peppol_isProcessing', val); },
+        set isProcessing(val) {
+            GM_setValue('peppol_isProcessing', val);
+            if (val) {
+                GM_setValue('peppol_processingTimestamp', Date.now());
+            }
+        },
+
+        get processingTimestamp() { return GM_getValue('peppol_processingTimestamp', 0); },
 
         // Detailed result tracking
         get results() { return JSON.parse(GM_getValue('peppol_results', '[]')); },
@@ -94,6 +104,26 @@
         get lastProcessedClient() { return GM_getValue('peppol_lastProcessed', ''); },
         set lastProcessedClient(val) { GM_setValue('peppol_lastProcessed', val); }
     };
+
+    // Check if processing lock is stale and clear it
+    function checkAndClearStaleLock() {
+        if (STATE.isProcessing) {
+            const lockAge = Date.now() - STATE.processingTimestamp;
+            if (lockAge > CONFIG.processingLockTimeout) {
+                log(`⚠️ Processing lock is stale (${Math.round(lockAge/1000)}s old), clearing it`);
+                STATE.isProcessing = false;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Manually clear processing lock
+    function clearProcessingLock() {
+        log('🔓 Manually clearing processing lock');
+        STATE.isProcessing = false;
+        updateControlPanel();
+    }
 
     // Add result to tracking
     function addResult(clientNumber, resultType, message = '') {
@@ -297,8 +327,9 @@
             log('🖱️ Clicking first result link');
             firstResult.click();
 
-            // Don't clear isProcessing here - let the detail page handler clear it
-            log('✅ Search page handler completed, navigating to detail page');
+            // Clear processing lock BEFORE navigation
+            STATE.isProcessing = false;
+            log('🔓 Processing lock released before navigation');
 
         } catch (error) {
             log('❌ ERROR in search page handler:', error.message);
@@ -432,6 +463,10 @@
             STATE.needsRecheck = true;
             log('🔄 Recheck flag set - will verify status after navigation');
 
+            // Clear processing lock BEFORE navigation
+            STATE.isProcessing = false;
+            log('🔓 Processing lock released before navigation');
+
             await delay(CONFIG.delayAfterConnect);
             log('⏳ Waited after connect click');
 
@@ -562,7 +597,7 @@
 
         panel.innerHTML = `
             <div style="border-bottom: 2px solid #2563eb; padding-bottom: 10px; margin-bottom: 10px;">
-                <h3 style="margin: 0; color: #2563eb; font-size: 16px;">☁️ Peppol Automation v2.1</h3>
+                <h3 style="margin: 0; color: #2563eb; font-size: 16px;">☁️ Peppol Automation v2.2</h3>
             </div>
             <div style="margin-bottom: 10px; font-size: 13px;">
                 <strong>Progress:</strong> <span id="peppol-progress">0/0</span><br>
@@ -578,13 +613,14 @@
                 <strong style="color: #dc2626;">❌ Errors:</strong> <span id="peppol-errors">${counts.errors}</span><br>
                 <hr style="margin: 8px 0;">
                 <strong>Status:</strong> <span id="peppol-status">Idle</span><br>
-                <strong>Processing:</strong> <span id="peppol-processing-status">🔓 Unlocked</span>
+                <strong>Lock:</strong> <span id="peppol-processing-status">🔓 Unlocked</span>
             </div>
             <div style="display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 5px;">
                 <button id="peppol-start" style="flex: 1; padding: 8px; background: #16a34a; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px;">▶ Start</button>
                 <button id="peppol-pause" style="flex: 1; padding: 8px; background: #f59e0b; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px;">⏸ Pause</button>
             </div>
             <div style="display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 10px;">
+                <button id="peppol-unlock" style="flex: 1; padding: 6px; background: #8b5cf6; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px;">🔓 Unlock</button>
                 <button id="peppol-reset" style="flex: 1; padding: 6px; background: #dc2626; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px;">🔄 Reset</button>
                 <button id="peppol-export" style="flex: 1; padding: 6px; background: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px;">📥 Export</button>
             </div>
@@ -638,7 +674,16 @@ or
         if (statusEl) statusEl.textContent = STATE.isRunning ? '🟢 Running' : '⚪ Paused';
 
         const processingEl = document.getElementById('peppol-processing-status');
-        if (processingEl) processingEl.textContent = STATE.isProcessing ? '🔒 Locked' : '🔓 Unlocked';
+        if (processingEl) {
+            if (STATE.isProcessing) {
+                const lockAge = Math.round((Date.now() - STATE.processingTimestamp) / 1000);
+                processingEl.textContent = `🔒 Locked (${lockAge}s)`;
+                processingEl.style.color = lockAge > 10 ? '#dc2626' : '#f59e0b';
+            } else {
+                processingEl.textContent = '🔓 Unlocked';
+                processingEl.style.color = '#16a34a';
+            }
+        }
 
         const progressBar = document.getElementById('peppol-progressbar');
         if (progressBar && clients.length > 0) {
@@ -669,8 +714,8 @@ or
 
             log('▶️ START button clicked');
             STATE.isRunning = true;
-            STATE.isProcessing = false; // Reset processing lock
-            STATE.lastProcessedClient = ''; // Reset duplicate check
+            STATE.isProcessing = false;
+            STATE.lastProcessedClient = '';
             updateControlPanel();
 
             const page = getCurrentPage();
@@ -693,6 +738,10 @@ or
             STATE.needsRecheck = false;
             STATE.lastProcessedClient = '';
             updateControlPanel();
+        });
+
+        document.getElementById('peppol-unlock').addEventListener('click', () => {
+            clearProcessingLock();
         });
 
         document.getElementById('peppol-reset').addEventListener('click', () => {
@@ -745,20 +794,27 @@ or
     // Initialize
     function init() {
         log('='.repeat(50));
-        log('🚀 Peppol Automation v2.1 Initializing');
+        log('🚀 Peppol Automation v2.2 Initializing');
         log(`📍 Current URL: ${window.location.href}`);
         log(`📄 Page detected as: ${getCurrentPage()}`);
         log(`▶️ isRunning: ${STATE.isRunning}`);
         log(`🔒 isProcessing: ${STATE.isProcessing}`);
         log(`🔄 needsRecheck: ${STATE.needsRecheck}`);
         log(`📊 Current index: ${STATE.currentIndex}/${STATE.clientList.length}`);
+
+        // Check and clear stale processing lock
+        const wasStale = checkAndClearStaleLock();
+        if (wasStale) {
+            log('✓ Stale lock cleared');
+        }
+
         log('='.repeat(50));
 
         if (!document.getElementById('peppol-automation-panel')) {
             createControlPanel();
         }
 
-        // Continue automation if it was running
+        // Continue automation if it was running and not processing
         if (STATE.isRunning && !STATE.isProcessing) {
             const page = getCurrentPage();
             log(`▶️ Continuing automation on ${page} page`);
@@ -771,7 +827,7 @@ or
                 log('⚠️ Unknown page type, cannot continue automation');
             }
         } else if (STATE.isProcessing) {
-            log('ℹ️ Processing lock is active, waiting for current operation to complete');
+            log('⚠️ Processing lock still active - use Unlock button if stuck');
         }
     }
 
@@ -779,6 +835,6 @@ or
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
     } else {
-        setTimeout(init, 1500); // Give APEX extra time to initialize
+        setTimeout(init, 1500);
     }
 })();
