@@ -314,7 +314,7 @@
             if (STATE.lastProcessedClient === clientNumber && resultsVisible) {
                 log(`✓ Results already visible for ${clientNumber}, clicking first result`);
                 STATE.lastProcessedClient = ''; // Clear so we can move to next
-                await delay(500);
+                await delay(200);
                 resultsVisible.click();
                 log('✓ Clicked first result, navigating to detail');
                 return;
@@ -661,7 +661,7 @@
             <div style="margin-bottom: 10px; font-size: 12px; line-height: 1.6;">
                 <strong style="color: #16a34a;">Verbonden:</strong> <span id="peppol-success">${counts.success}</span><br>
                 <strong style="color: #9ca3af;">Geen zakelijke klant:</strong> <span id="peppol-skipped-btw">${counts.skippedNoBtw}</span><br>
-                <strong style="color: #9ca3af;">⏭Reeds verbonden:</strong> <span id="peppol-skipped-connected">${counts.alreadyConnected}</span><br>
+                <strong style="color: #9ca3af;">Reeds verbonden:</strong> <span id="peppol-skipped-connected">${counts.alreadyConnected}</span><br>
                 <strong style="color: #f59e0b;">Klant geen Peppol:</strong> <span id="peppol-not-registered">${counts.notRegistered}</span><br>
                 <strong style="color: #dc2626;">Errors:</strong> <span id="peppol-errors">${counts.errors}</span><br>
                 <hr style="margin: 8px 0;">
