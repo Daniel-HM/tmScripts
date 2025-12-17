@@ -217,34 +217,33 @@
 
     // Wait for APEX page to finish loading
     function waitForApexReady(timeout = 15000) {
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve) => {
             const startTime = Date.now();
 
             const checkReady = () => {
-                // Check if APEX is done loading
-                if (typeof apex !== 'undefined' && apex.page && !apex.page.isLoading()) {
-                    log('✓ APEX page ready');
-                    resolve();
-                    return;
-                }
+                // Check if page has finished loading indicators
+                const loadingIndicators = document.querySelectorAll('.apex-page-loader, .u-Processing');
+                const hasLoadingIndicators = loadingIndicators.length > 0;
 
-                // Check for jQuery animation queue (APEX uses it)
-                if (typeof $ !== 'undefined' && $(':animated').length === 0) {
-                    log('✓ No animations running');
+                // Check for jQuery animations
+                const hasAnimations = typeof $ !== 'undefined' && $(':animated').length > 0;
+
+                if (!hasLoadingIndicators && !hasAnimations) {
+                    log('✓ Page ready (no loading indicators)');
                     resolve();
                     return;
                 }
 
                 if (Date.now() - startTime > timeout) {
                     log('⚠️ Timeout waiting for page ready, continuing anyway');
-                    resolve(); // Don't reject, just continue
+                    resolve();
                     return;
                 }
 
                 setTimeout(checkReady, 100);
             };
 
-            setTimeout(checkReady, 500); // Start checking after 500ms
+            setTimeout(checkReady, 500);
         });
     }
 
