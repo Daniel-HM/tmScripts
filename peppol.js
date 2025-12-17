@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Intratuin Peppol Connection Automation
 // @namespace    http://tampermonkey.net/
-// @version      2.4
+// @version      2.5
 // @description  Automate Peppol connection for business customers with phone validation and detailed tracking
 // @author       Daniel
 // @match        https://rs-intratuin.axi.nl/ordsp/f?p=108011:1:*
@@ -591,21 +591,23 @@
         const panel = document.createElement('div');
         panel.id = 'peppol-automation-panel';
         panel.style.cssText = `
-            position: fixed;
-            top: 60px;
-            right: 10px;
-            background: white;
-            border: 2px solid #2563eb;
-            padding: 15px;
-            z-index: 999999;
-            border-radius: 8px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-            font-family: Arial, sans-serif;
-            min-width: 320px;
-            max-width: 400px;
-            max-height: 90vh;
-            overflow-y: auto;
-        `;
+    position: fixed;
+    top: ${GM_getValue('peppol_panel_top', '60')}px;
+    left: ${GM_getValue('peppol_panel_left', '')}${GM_getValue('peppol_panel_left', '') ? 'px' : ''};
+    right: ${GM_getValue('peppol_panel_left', '') ? '' : '10px'};
+    background: white;
+    border: 2px solid #2563eb;
+    padding: 15px;
+    z-index: 999999;
+    border-radius: 8px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    font-family: Arial, sans-serif;
+    min-width: 320px;
+    max-width: 400px;
+    max-height: 90vh;
+    overflow-y: auto;
+    cursor: move;
+`;
 
         const counts = getResultCounts();
 
@@ -655,6 +657,53 @@ or
         `;
 
         document.body.appendChild(panel);
+        // Make panel draggable
+        function makeDraggable(panel) {
+            let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+
+            panel.onmousedown = dragMouseDown;
+
+            function dragMouseDown(e) {
+                // Only drag if clicking the header area
+                if (e.target.tagName === 'BUTTON' || e.target.tagName === 'TEXTAREA' ||
+                    e.target.tagName === 'INPUT' || e.target.tagName === 'SUMMARY') {
+                    return;
+                }
+
+                e.preventDefault();
+                pos3 = e.clientX;
+                pos4 = e.clientY;
+                document.onmouseup = closeDragElement;
+                document.onmousemove = elementDrag;
+            }
+
+            function elementDrag(e) {
+                e.preventDefault();
+                pos1 = pos3 - e.clientX;
+                pos2 = pos4 - e.clientY;
+                pos3 = e.clientX;
+                pos4 = e.clientY;
+
+                const newTop = (panel.offsetTop - pos2);
+                const newLeft = (panel.offsetLeft - pos1);
+
+                panel.style.top = newTop + "px";
+                panel.style.left = newLeft + "px";
+                panel.style.right = "auto";
+            }
+
+            function closeDragElement() {
+                document.onmouseup = null;
+                document.onmousemove = null;
+
+                // Save position
+                GM_setValue('peppol_panel_top', panel.offsetTop);
+                GM_setValue('peppol_panel_left', panel.offsetLeft);
+                log(`💾 Panel position saved: top=${panel.offsetTop}, left=${panel.offsetLeft}`);
+            }
+        }
+
+        makeDraggable(panel);
         attachPanelListeners();
         updateControlPanel();
         log('✓ Control panel created');
