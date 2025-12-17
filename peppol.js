@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Intratuin Peppol Connection Automation
 // @namespace    http://tampermonkey.net/
-// @version      2.7
+// @version      2.8
 // @description  Automate Peppol connection for business customers with phone validation and detailed tracking
 // @author       Daniel
 // @match        https://rs-intratuin.axi.nl/ordsp/f?p=108011:1:*
@@ -37,11 +37,11 @@
         searchPageUrl: 'https://rs-intratuin.axi.nl/ordsp/f?p=108011:1:',
 
         // Delays (in milliseconds)
-        delayAfterSearch: 3000,
-        delayBeforeConnect: 800,
-        delayAfterConnect: 3000,
-        delayBetweenChecks: 2000,
-        delayBeforeReturnToSearch: 1500,
+        delayAfterSearch: 1000,
+        delayBeforeConnect: 300,
+        delayAfterConnect: 1000,
+        delayBetweenChecks: 800,
+        delayBeforeReturnToSearch: 500,
 
         // Lock timeout (milliseconds)
         processingLockTimeout: 30000 // 30 seconds
@@ -215,6 +215,39 @@
 
     const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+    // Wait for APEX page to finish loading
+    function waitForApexReady(timeout = 15000) {
+        return new Promise((resolve, reject) => {
+            const startTime = Date.now();
+
+            const checkReady = () => {
+                // Check if APEX is done loading
+                if (typeof apex !== 'undefined' && apex.page && !apex.page.isLoading()) {
+                    log('✓ APEX page ready');
+                    resolve();
+                    return;
+                }
+
+                // Check for jQuery animation queue (APEX uses it)
+                if (typeof $ !== 'undefined' && $(':animated').length === 0) {
+                    log('✓ No animations running');
+                    resolve();
+                    return;
+                }
+
+                if (Date.now() - startTime > timeout) {
+                    log('⚠️ Timeout waiting for page ready, continuing anyway');
+                    resolve(); // Don't reject, just continue
+                    return;
+                }
+
+                setTimeout(checkReady, 100);
+            };
+
+            setTimeout(checkReady, 500); // Start checking after 500ms
+        });
+    }
+
     function getCurrentPage() {
         const url = window.location.href;
         if (url.includes(':1:') || url.includes('f?p=KLANT_KLANTEN_RS:1')) return 'search';
@@ -328,7 +361,8 @@
 
             // Wait for APEX to process and show results
             await delay(CONFIG.delayAfterSearch);
-            log('⏳ Waited for search results');
+            await waitForApexReady();
+            log('✓ Search results ready');
 
             // Wait for and click first result
             const firstResult = await waitForElement(CONFIG.firstResultLink, 15000);
@@ -384,7 +418,8 @@
         log(`🔄 Recheck mode: ${STATE.needsRecheck}`);
 
         try {
-            await delay(CONFIG.delayBetweenChecks);
+            await delay(500);
+            await waitForApexReady();
 
             // Check BTW field first
             const btwField = document.querySelector(CONFIG.btwField);
@@ -482,6 +517,7 @@
             log('🔓 Processing lock released before navigation');
 
             await delay(CONFIG.delayAfterConnect);
+            await waitForApexReady();
             log('⏳ Waited after connect click');
 
             // The connect button returns to search page, so navigate back to client
@@ -618,7 +654,7 @@
 
         panel.innerHTML = `
             <div style="border-bottom: 2px solid #2563eb; padding-bottom: 10px; margin-bottom: 10px;">
-                <h3 style="margin: 0; color: #2563eb; font-size: 16px;">☁️ Peppol Automation v2.7</h3>
+                <h3 style="margin: 0; color: #2563eb; font-size: 16px;">☁️ Peppol Automation v2.8</h3>
             </div>
             <div style="margin-bottom: 10px; font-size: 13px;">
                 <strong>Progress:</strong> <span id="peppol-progress">0/0</span><br>
