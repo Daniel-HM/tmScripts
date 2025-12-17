@@ -38,10 +38,10 @@
 
         // Delays (in milliseconds)
         delayAfterSearch: 500,
-        delayBeforeConnect: 300,
+        delayBeforeConnect: 100,
         delayAfterConnect: 500,
         delayBetweenChecks: 500,
-        delayBeforeReturnToSearch: 500,
+        delayBeforeReturnToSearch: 300,
 
         // Lock timeout (milliseconds)
         processingLockTimeout: 30000 // 30 seconds
@@ -240,10 +240,10 @@
                     return;
                 }
 
-                setTimeout(checkReady, 100);
+                setTimeout(checkReady, 50);
             };
 
-            setTimeout(checkReady, 500);
+            setTimeout(checkReady, 200);
         });
     }
 
