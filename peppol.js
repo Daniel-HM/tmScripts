@@ -1,12 +1,14 @@
 // ==UserScript==
-// @name         Peppol Connect
+// @name         Intratuin Peppol Connection Automation
 // @namespace    http://tampermonkey.net/
-// @version      2.0
-// @description  *Magic*
-// @downloadURL  https://raw.githubusercontent.com/Daniel-HM/tmScripts/refs/heads/main/peppol.js
-// @updateURL    https://raw.githubusercontent.com/Daniel-HM/tmScripts/refs/heads/main/peppol.js
+// @version      2.1
+// @description  Automate Peppol connection for business customers with phone validation and detailed tracking
+// @author       Daniel
 // @match        https://rs-intratuin.axi.nl/ordsp/f?p=108011:1:*
 // @match        https://rs-intratuin.axi.nl/ordsp/f?p=108011:100:*
+// @match        https://rs-intratuin.axi.nl/ordsp/f?p=KLANT_KLANTEN_RS*
+// @downloadURL  https://raw.githubusercontent.com/Daniel-HM/tmScripts/refs/heads/main/peppol.js
+// @updateURL    https://raw.githubusercontent.com/Daniel-HM/tmScripts/refs/heads/main/peppol.js
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_download
@@ -34,12 +36,24 @@
         // URLs
         searchPageUrl: 'https://rs-intratuin.axi.nl/ordsp/f?p=108011:1:',
 
-        // Delays (in milliseconds)
+        // Delays (in milliseconds) - increased for APEX
         delayAfterSearch: 3000,
-        delayBeforeConnect: 1000,
-        delayAfterConnect: 3500,
-        delayBetweenChecks: 2500
+        delayBeforeConnect: 800,
+        delayAfterConnect: 3000,
+        delayBetweenChecks: 2000,
+        delayBeforeReturnToSearch: 1500
     };
+
+    // Debug logging helper
+    function log(message, data = null) {
+        const timestamp = new Date().toLocaleTimeString();
+        const prefix = `[Peppol ${timestamp}]`;
+        if (data) {
+            console.log(prefix, message, data);
+        } else {
+            console.log(prefix, message);
+        }
+    }
 
     // Result tracking categories
     const RESULT_TYPES = {
@@ -64,13 +78,21 @@
         get processedCount() { return GM_getValue('peppol_processedCount', 0); },
         set processedCount(val) { GM_setValue('peppol_processedCount', val); },
 
+        // Processing lock to prevent concurrent execution
+        get isProcessing() { return GM_getValue('peppol_isProcessing', false); },
+        set isProcessing(val) { GM_setValue('peppol_isProcessing', val); },
+
         // Detailed result tracking
         get results() { return JSON.parse(GM_getValue('peppol_results', '[]')); },
         set results(val) { GM_setValue('peppol_results', JSON.stringify(val)); },
 
         // Need to re-check after connect
         get needsRecheck() { return GM_getValue('peppol_needsRecheck', false); },
-        set needsRecheck(val) { GM_setValue('peppol_needsRecheck', val); }
+        set needsRecheck(val) { GM_setValue('peppol_needsRecheck', val); },
+
+        // Track last processed client to prevent duplicate processing
+        get lastProcessedClient() { return GM_getValue('peppol_lastProcessed', ''); },
+        set lastProcessedClient(val) { GM_setValue('peppol_lastProcessed', val); }
     };
 
     // Add result to tracking
@@ -83,6 +105,7 @@
             timestamp: new Date().toISOString()
         });
         STATE.results = results;
+        log(`📝 Result recorded: ${clientNumber} - ${resultType}`, message);
     }
 
     // Get counts by result type
@@ -117,6 +140,7 @@
         a.href = url;
         a.download = `peppol_results_${new Date().toISOString().split('T')[0]}.csv`;
         a.click();
+        log('📥 CSV exported');
     }
 
     // Get list of not registered clients
@@ -131,13 +155,17 @@
         return new Promise((resolve, reject) => {
             const existing = document.querySelector(selector);
             if (existing) {
+                log(`✓ Element found immediately: ${selector}`);
                 return resolve(existing);
             }
+
+            log(`⏳ Waiting for element: ${selector}`);
 
             const observer = new MutationObserver(() => {
                 const el = document.querySelector(selector);
                 if (el) {
                     observer.disconnect();
+                    log(`✓ Element appeared: ${selector}`);
                     resolve(el);
                 }
             });
@@ -149,6 +177,7 @@
 
             setTimeout(() => {
                 observer.disconnect();
+                log(`❌ Timeout waiting for: ${selector}`);
                 reject(new Error(`Timeout waiting for: ${selector}`));
             }, timeout);
         });
@@ -158,8 +187,13 @@
 
     function getCurrentPage() {
         const url = window.location.href;
-        if (url.includes(':1:')) return 'search';
-        if (url.includes(':100:')) return 'detail';
+        if (url.includes(':1:') || url.includes('f?p=KLANT_KLANTEN_RS:1')) return 'search';
+        if (url.includes(':100:') || url.includes('f?p=KLANT_KLANTEN_RS:100')) return 'detail';
+
+        // Fallback: check for specific elements
+        if (document.querySelector(CONFIG.searchInput)) return 'search';
+        if (document.querySelector(CONFIG.btwField)) return 'detail';
+
         return 'unknown';
     }
 
@@ -174,61 +208,107 @@
 
     // Search page handler
     async function handleSearchPage() {
-        if (!STATE.isRunning) return;
+        log('🔍 === SEARCH PAGE HANDLER STARTED ===');
 
-        const clients = STATE.clientList;
-        const index = STATE.currentIndex;
-
-        if (index >= clients.length) {
-            console.log('✅ Processing complete!');
-            STATE.isRunning = false;
-            updateControlPanel();
-
-            const counts = getResultCounts();
-            alert(`Automation Complete!\n\n` +
-                `Total Processed: ${counts.total}\n` +
-                `✅ Successfully Connected: ${counts.success}\n` +
-                `⏭️ Skipped (No BTW): ${counts.skippedNoBtw}\n` +
-                `⏭️ Already Connected: ${counts.alreadyConnected}\n` +
-                `⚠️ Not Registered in Peppol: ${counts.notRegistered}\n` +
-                `❌ Errors: ${counts.errors}\n\n` +
-                `Click "Export Results" to download detailed CSV`);
+        if (!STATE.isRunning) {
+            log('⏸️ Not running, exiting');
             return;
         }
 
-        const clientNumber = getCurrentClientNumber();
+        if (STATE.isProcessing) {
+            log('⚠️ Already processing, skipping to prevent duplicate execution');
+            return;
+        }
 
-        console.log(`🔍 Processing ${index + 1}/${clients.length}: ${clientNumber}`);
-        updateControlPanel();
+        STATE.isProcessing = true;
+        log('🔒 Processing lock acquired');
 
         try {
+            const clients = STATE.clientList;
+            const index = STATE.currentIndex;
+
+            log(`📊 Progress: ${index}/${clients.length}`);
+
+            if (index >= clients.length) {
+                log('✅ All clients processed!');
+                STATE.isRunning = false;
+                STATE.isProcessing = false;
+                updateControlPanel();
+
+                const counts = getResultCounts();
+                alert(`Automation Complete!\n\n` +
+                    `Total Processed: ${counts.total}\n` +
+                    `✅ Successfully Connected: ${counts.success}\n` +
+                    `⏭️ Skipped (No BTW): ${counts.skippedNoBtw}\n` +
+                    `⏭️ Already Connected: ${counts.alreadyConnected}\n` +
+                    `⚠️ Not Registered in Peppol: ${counts.notRegistered}\n` +
+                    `❌ Errors: ${counts.errors}\n\n` +
+                    `Click "Export Results" to download detailed CSV`);
+                return;
+            }
+
+            const clientNumber = getCurrentClientNumber();
+
+            // Check if we just processed this client (prevent duplicate)
+            if (STATE.lastProcessedClient === clientNumber) {
+                log(`⏭️ Client ${clientNumber} was just processed, skipping duplicate`);
+                STATE.isProcessing = false;
+                return;
+            }
+
+            log(`🎯 Processing client ${index + 1}/${clients.length}: ${clientNumber}`);
+            STATE.lastProcessedClient = clientNumber;
+            updateControlPanel();
+
+            // Fill search field
             const searchInput = document.querySelector(CONFIG.searchInput);
             if (!searchInput) {
                 throw new Error('Search input not found');
             }
+            log('✓ Search input found');
 
             searchInput.value = clientNumber;
             searchInput.dispatchEvent(new Event('input', { bubbles: true }));
             searchInput.dispatchEvent(new Event('change', { bubbles: true }));
+            log(`✓ Search field filled with: ${clientNumber}`);
 
             await delay(500);
 
+            // Click search button
             const searchBtn = document.querySelector(CONFIG.searchButton);
             if (!searchBtn) {
                 throw new Error('Search button not found');
             }
+            log('✓ Search button found');
 
             searchBtn.click();
-            await delay(CONFIG.delayAfterSearch);
+            log('🔍 Search button clicked');
 
+            // Wait for APEX to process and show results
+            await delay(CONFIG.delayAfterSearch);
+            log('⏳ Waited for search results');
+
+            // Wait for and click first result
             const firstResult = await waitForElement(CONFIG.firstResultLink, 15000);
+            log('✓ First result link found');
+
             await delay(500);
+
+            log('🖱️ Clicking first result link');
             firstResult.click();
 
+            // Don't clear isProcessing here - let the detail page handler clear it
+            log('✅ Search page handler completed, navigating to detail page');
+
         } catch (error) {
-            console.error('❌ Error on search page:', error);
-            addResult(clientNumber, RESULT_TYPES.ERROR, error.message);
+            log('❌ ERROR in search page handler:', error.message);
+            console.error('Full error:', error);
+
+            const clientNumber = getCurrentClientNumber();
+            addResult(clientNumber, RESULT_TYPES.ERROR, `Search error: ${error.message}`);
             STATE.currentIndex++;
+            STATE.isProcessing = false;
+            STATE.lastProcessedClient = '';
 
             await delay(2000);
             window.location.reload();
@@ -237,10 +317,26 @@
 
     // Detail page handler
     async function handleDetailPage() {
-        if (!STATE.isRunning) return;
+        log('📋 === DETAIL PAGE HANDLER STARTED ===');
+
+        if (!STATE.isRunning) {
+            log('⏸️ Not running, exiting');
+            return;
+        }
+
+        if (STATE.isProcessing && !STATE.needsRecheck) {
+            log('⚠️ Already processing (not a recheck), skipping');
+            return;
+        }
+
+        if (!STATE.needsRecheck) {
+            STATE.isProcessing = true;
+            log('🔒 Processing lock acquired');
+        }
 
         const clientNumber = getCurrentClientNumber();
-        console.log(`📋 On detail page for: ${clientNumber}`);
+        log(`📋 Processing detail page for: ${clientNumber}`);
+        log(`🔄 Recheck mode: ${STATE.needsRecheck}`);
 
         try {
             await delay(CONFIG.delayBetweenChecks);
@@ -248,23 +344,29 @@
             // Check BTW field first
             const btwField = document.querySelector(CONFIG.btwField);
             if (!btwField) {
-                throw new Error('BTW field not found');
+                throw new Error('BTW field not found - page may not be fully loaded');
             }
+            log('✓ BTW field found');
 
             const btwValue = btwField.value.trim();
+            log(`📄 BTW value: "${btwValue}"`);
+
             if (!btwValue || btwValue === '') {
-                console.log('⏭️ Skipping - No BTW number (not a business customer)');
+                log('⏭️ Skipping - No BTW number (private customer)');
                 addResult(clientNumber, RESULT_TYPES.SKIPPED_NO_BTW, 'No BTW number present');
                 STATE.currentIndex++;
                 STATE.processedCount++;
+                STATE.isProcessing = false;
+                STATE.lastProcessedClient = '';
                 await returnToSearch();
                 return;
             }
 
-            console.log(`✓ BTW number present: ${btwValue}`);
+            log(`✓ BTW number present: ${btwValue}`);
 
             // If we just connected and need to recheck status
             if (STATE.needsRecheck) {
+                log('🔄 Recheck mode - verifying Peppol status after connection');
                 STATE.needsRecheck = false;
                 await checkPeppolStatus(clientNumber, btwValue);
                 return;
@@ -272,13 +374,22 @@
 
             // Check if already connected to Peppol
             const peppolStatus = document.querySelector(CONFIG.peppolStatusField);
-            if (peppolStatus && peppolStatus.textContent.trim() === 'Ja') {
-                console.log('⏭️ Already connected to Peppol');
-                addResult(clientNumber, RESULT_TYPES.SKIPPED_ALREADY_CONNECTED, 'Already connected to Peppol');
-                STATE.currentIndex++;
-                STATE.processedCount++;
-                await returnToSearch();
-                return;
+            if (!peppolStatus) {
+                log('⚠️ Peppol status field not found');
+            } else {
+                const statusText = peppolStatus.textContent.trim();
+                log(`📊 Current Peppol status: "${statusText}"`);
+
+                if (statusText === 'Ja') {
+                    log('⏭️ Already connected to Peppol');
+                    addResult(clientNumber, RESULT_TYPES.SKIPPED_ALREADY_CONNECTED, 'Already connected to Peppol');
+                    STATE.currentIndex++;
+                    STATE.processedCount++;
+                    STATE.isProcessing = false;
+                    STATE.lastProcessedClient = '';
+                    await returnToSearch();
+                    return;
+                }
             }
 
             // Check phone fields
@@ -288,19 +399,23 @@
             if (!phone1 || !phone2) {
                 throw new Error('Phone fields not found');
             }
+            log('✓ Phone fields found');
 
             const hasPhone1 = phone1.value && phone1.value.trim() !== '';
             const hasPhone2 = phone2.value && phone2.value.trim() !== '';
+            log(`📞 Phone1: "${phone1.value}" (has value: ${hasPhone1})`);
+            log(`📞 Phone2: "${phone2.value}" (has value: ${hasPhone2})`);
 
             // If neither phone field has a value, fill with placeholder
             if (!hasPhone1 && !hasPhone2) {
-                console.log('📞 No phone numbers, adding placeholder "0"');
+                log('📞 No phone numbers found, adding placeholder "0"');
                 phone1.value = '0';
                 phone1.dispatchEvent(new Event('input', { bubbles: true }));
                 phone1.dispatchEvent(new Event('change', { bubbles: true }));
+                log('✓ Placeholder added to phone1');
                 await delay(CONFIG.delayBeforeConnect);
             } else {
-                console.log('✓ Phone number(s) present');
+                log('✓ Phone number(s) already present');
             }
 
             // Click Peppol connect button
@@ -308,65 +423,96 @@
             if (!connectBtn) {
                 throw new Error('Peppol connect button not found');
             }
+            log('✓ Connect button found');
 
-            console.log('🔗 Connecting to Peppol...');
+            log('🔗 Clicking "Koppelen aan Peppol" button...');
             connectBtn.click();
 
             // Mark that we need to recheck after the page reloads
             STATE.needsRecheck = true;
+            log('🔄 Recheck flag set - will verify status after navigation');
 
             await delay(CONFIG.delayAfterConnect);
+            log('⏳ Waited after connect click');
 
-            // The connect button returns to search page, so we need to go back to detail
+            // The connect button returns to search page, so navigate back to client
+            log('🔙 Navigating back to client to verify status');
             await navigateToClient(clientNumber);
 
         } catch (error) {
-            console.error('❌ Error on detail page:', error);
-            addResult(clientNumber, RESULT_TYPES.ERROR, error.message);
+            log('❌ ERROR in detail page handler:', error.message);
+            console.error('Full error:', error);
+
+            const clientNumber = getCurrentClientNumber();
+            addResult(clientNumber, RESULT_TYPES.ERROR, `Detail page error: ${error.message}`);
             STATE.currentIndex++;
             STATE.processedCount++;
+            STATE.isProcessing = false;
+            STATE.needsRecheck = false;
+            STATE.lastProcessedClient = '';
             await returnToSearch();
         }
     }
 
     // Check Peppol connection status after connecting
     async function checkPeppolStatus(clientNumber, btwValue) {
+        log('🔍 === CHECKING PEPPOL STATUS ===');
+
         try {
             await delay(CONFIG.delayBetweenChecks);
 
             const peppolStatus = document.querySelector(CONFIG.peppolStatusField);
             const peppolMessage = document.querySelector(CONFIG.peppolMessageField);
 
-            if (peppolStatus && peppolStatus.textContent.trim() === 'Ja') {
-                console.log('✅ Successfully connected to Peppol!');
+            if (!peppolStatus) {
+                throw new Error('Peppol status field not found during verification');
+            }
+
+            const statusText = peppolStatus.textContent.trim();
+            const messageText = peppolMessage ? peppolMessage.textContent.trim() : '';
+
+            log(`📊 Status after connection: "${statusText}"`);
+            log(`💬 Message: "${messageText}"`);
+
+            if (statusText === 'Ja') {
+                log('✅ Successfully connected to Peppol!');
                 addResult(clientNumber, RESULT_TYPES.SUCCESS, 'Connected to Peppol');
-            } else if (peppolMessage && peppolMessage.textContent.includes('Customer is not registered in Peppol with CBE number')) {
-                console.log('⚠️ Customer not registered in Peppol yet');
+            } else if (messageText.includes('Customer is not registered in Peppol with CBE number')) {
+                log('⚠️ Customer not registered in Peppol yet');
                 addResult(clientNumber, RESULT_TYPES.NOT_REGISTERED, `Not registered in Peppol (BTW: ${btwValue})`);
             } else {
-                console.log('❓ Unexpected status');
-                const statusText = peppolStatus ? peppolStatus.textContent.trim() : 'unknown';
-                const messageText = peppolMessage ? peppolMessage.textContent.trim() : 'no message';
+                log('❓ Unexpected status after connection');
                 addResult(clientNumber, RESULT_TYPES.ERROR, `Unexpected status: ${statusText}, message: ${messageText}`);
             }
 
             STATE.currentIndex++;
             STATE.processedCount++;
+            STATE.isProcessing = false;
+            STATE.lastProcessedClient = '';
+            log('✓ Status check complete, moving to next client');
+
             await returnToSearch();
 
         } catch (error) {
-            console.error('❌ Error checking Peppol status:', error);
+            log('❌ ERROR checking Peppol status:', error.message);
+            console.error('Full error:', error);
+
             addResult(clientNumber, RESULT_TYPES.ERROR, `Status check failed: ${error.message}`);
             STATE.currentIndex++;
             STATE.processedCount++;
+            STATE.isProcessing = false;
+            STATE.lastProcessedClient = '';
             await returnToSearch();
         }
     }
 
     // Navigate to a specific client
     async function navigateToClient(clientNumber) {
+        log(`🔄 Navigating back to search to re-open client: ${clientNumber}`);
+
         const sessionId = window.location.href.match(/:(\d+):/)?.[1];
         if (!sessionId) {
+            log('⚠️ Could not extract session ID, reloading page');
             window.location.reload();
             return;
         }
@@ -377,12 +523,16 @@
 
     // Return to search page
     async function returnToSearch() {
+        log('🔙 Returning to search page');
         updateControlPanel();
+
+        await delay(CONFIG.delayBeforeReturnToSearch);
 
         const sessionId = window.location.href.match(/:(\d+):/)?.[1];
         if (sessionId) {
             window.location.href = `${CONFIG.searchPageUrl}${sessionId}`;
         } else {
+            log('⚠️ Could not extract session ID, reloading');
             window.location.reload();
         }
     }
@@ -412,7 +562,7 @@
 
         panel.innerHTML = `
             <div style="border-bottom: 2px solid #2563eb; padding-bottom: 10px; margin-bottom: 10px;">
-                <h3 style="margin: 0; color: #2563eb; font-size: 16px;">☁️ Peppol Automation</h3>
+                <h3 style="margin: 0; color: #2563eb; font-size: 16px;">☁️ Peppol Automation v2.1</h3>
             </div>
             <div style="margin-bottom: 10px; font-size: 13px;">
                 <strong>Progress:</strong> <span id="peppol-progress">0/0</span><br>
@@ -427,7 +577,8 @@
                 <strong style="color: #f59e0b;">⚠️ Not Registered:</strong> <span id="peppol-not-registered">${counts.notRegistered}</span><br>
                 <strong style="color: #dc2626;">❌ Errors:</strong> <span id="peppol-errors">${counts.errors}</span><br>
                 <hr style="margin: 8px 0;">
-                <strong>Status:</strong> <span id="peppol-status">Idle</span>
+                <strong>Status:</strong> <span id="peppol-status">Idle</span><br>
+                <strong>Processing:</strong> <span id="peppol-processing-status">🔓 Unlocked</span>
             </div>
             <div style="display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 5px;">
                 <button id="peppol-start" style="flex: 1; padding: 8px; background: #16a34a; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px;">▶ Start</button>
@@ -456,6 +607,7 @@ or
         document.body.appendChild(panel);
         attachPanelListeners();
         updateControlPanel();
+        log('✓ Control panel created');
     }
 
     // Update control panel
@@ -464,28 +616,46 @@ or
         const index = STATE.currentIndex;
         const counts = getResultCounts();
 
-        document.getElementById('peppol-progress').textContent = `${index}/${clients.length}`;
-        document.getElementById('peppol-success').textContent = counts.success;
-        document.getElementById('peppol-skipped-btw').textContent = counts.skippedNoBtw;
-        document.getElementById('peppol-skipped-connected').textContent = counts.alreadyConnected;
-        document.getElementById('peppol-not-registered').textContent = counts.notRegistered;
-        document.getElementById('peppol-errors').textContent = counts.errors;
-        document.getElementById('peppol-status').textContent = STATE.isRunning ? '🟢 Running' : '⚪ Paused';
+        const progressEl = document.getElementById('peppol-progress');
+        if (progressEl) progressEl.textContent = `${index}/${clients.length}`;
+
+        const successEl = document.getElementById('peppol-success');
+        if (successEl) successEl.textContent = counts.success;
+
+        const skippedBtwEl = document.getElementById('peppol-skipped-btw');
+        if (skippedBtwEl) skippedBtwEl.textContent = counts.skippedNoBtw;
+
+        const skippedConnectedEl = document.getElementById('peppol-skipped-connected');
+        if (skippedConnectedEl) skippedConnectedEl.textContent = counts.alreadyConnected;
+
+        const notRegisteredEl = document.getElementById('peppol-not-registered');
+        if (notRegisteredEl) notRegisteredEl.textContent = counts.notRegistered;
+
+        const errorsEl = document.getElementById('peppol-errors');
+        if (errorsEl) errorsEl.textContent = counts.errors;
+
+        const statusEl = document.getElementById('peppol-status');
+        if (statusEl) statusEl.textContent = STATE.isRunning ? '🟢 Running' : '⚪ Paused';
+
+        const processingEl = document.getElementById('peppol-processing-status');
+        if (processingEl) processingEl.textContent = STATE.isProcessing ? '🔒 Locked' : '🔓 Unlocked';
 
         const progressBar = document.getElementById('peppol-progressbar');
-        if (clients.length > 0) {
+        if (progressBar && clients.length > 0) {
             progressBar.value = (index / clients.length) * 100;
         }
 
         // Update not registered list
         const notRegList = document.getElementById('peppol-not-reg-list');
-        const notRegistered = getNotRegisteredClients();
-        if (notRegistered.length > 0) {
-            notRegList.innerHTML = notRegistered.map(num =>
-                `<div style="padding: 2px 0;">${num}</div>`
-            ).join('');
-        } else {
-            notRegList.innerHTML = '<em style="color: #6b7280;">No unregistered clients yet</em>';
+        if (notRegList) {
+            const notRegistered = getNotRegisteredClients();
+            if (notRegistered.length > 0) {
+                notRegList.innerHTML = notRegistered.map(num =>
+                    `<div style="padding: 2px 0;">${num}</div>`
+                ).join('');
+            } else {
+                notRegList.innerHTML = '<em style="color: #6b7280;">No unregistered clients yet</em>';
+            }
         }
     }
 
@@ -497,31 +667,44 @@ or
                 return;
             }
 
+            log('▶️ START button clicked');
             STATE.isRunning = true;
+            STATE.isProcessing = false; // Reset processing lock
+            STATE.lastProcessedClient = ''; // Reset duplicate check
             updateControlPanel();
 
             const page = getCurrentPage();
+            log(`📍 Current page: ${page}`);
+
             if (page === 'search') {
                 await handleSearchPage();
             } else if (page === 'detail') {
                 await handleDetailPage();
+            } else {
+                log('❌ Unknown page type, please navigate to search page');
+                alert('Please navigate to the search page first');
             }
         });
 
         document.getElementById('peppol-pause').addEventListener('click', () => {
+            log('⏸️ PAUSE button clicked');
             STATE.isRunning = false;
+            STATE.isProcessing = false;
             STATE.needsRecheck = false;
+            STATE.lastProcessedClient = '';
             updateControlPanel();
-            console.log('⏸ Automation paused');
         });
 
         document.getElementById('peppol-reset').addEventListener('click', () => {
             if (confirm('⚠️ Reset all progress and results? This cannot be undone!')) {
+                log('🔄 RESET button confirmed');
                 STATE.currentIndex = 0;
                 STATE.processedCount = 0;
                 STATE.results = [];
                 STATE.isRunning = false;
+                STATE.isProcessing = false;
                 STATE.needsRecheck = false;
+                STATE.lastProcessedClient = '';
                 updateControlPanel();
                 alert('🔄 Progress reset. Results cleared.');
             }
@@ -545,9 +728,11 @@ or
                 }
 
                 STATE.clientList = clients;
+                log(`📁 Loaded ${clients.length} clients`);
                 alert(`✅ Loaded ${clients.length} clients`);
                 updateControlPanel();
             } catch(e) {
+                log('❌ JSON parse error:', e.message);
                 alert('❌ Invalid JSON format: ' + e.message);
             }
         });
@@ -559,23 +744,34 @@ or
 
     // Initialize
     function init() {
-        console.log('🚀 Peppol Automation initialized');
-        console.log('📍 Current page:', getCurrentPage());
+        log('='.repeat(50));
+        log('🚀 Peppol Automation v2.1 Initializing');
+        log(`📍 Current URL: ${window.location.href}`);
+        log(`📄 Page detected as: ${getCurrentPage()}`);
+        log(`▶️ isRunning: ${STATE.isRunning}`);
+        log(`🔒 isProcessing: ${STATE.isProcessing}`);
+        log(`🔄 needsRecheck: ${STATE.needsRecheck}`);
+        log(`📊 Current index: ${STATE.currentIndex}/${STATE.clientList.length}`);
+        log('='.repeat(50));
 
         if (!document.getElementById('peppol-automation-panel')) {
             createControlPanel();
         }
 
         // Continue automation if it was running
-        if (STATE.isRunning) {
+        if (STATE.isRunning && !STATE.isProcessing) {
             const page = getCurrentPage();
-            console.log('▶️ Continuing automation on', page, 'page');
+            log(`▶️ Continuing automation on ${page} page`);
 
             if (page === 'search') {
-                setTimeout(() => handleSearchPage(), 2000);
+                setTimeout(() => handleSearchPage(), 2500);
             } else if (page === 'detail') {
-                setTimeout(() => handleDetailPage(), 2000);
+                setTimeout(() => handleDetailPage(), 2500);
+            } else {
+                log('⚠️ Unknown page type, cannot continue automation');
             }
+        } else if (STATE.isProcessing) {
+            log('ℹ️ Processing lock is active, waiting for current operation to complete');
         }
     }
 
@@ -583,6 +779,6 @@ or
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
     } else {
-        setTimeout(init, 1000);
+        setTimeout(init, 1500); // Give APEX extra time to initialize
     }
 })();
