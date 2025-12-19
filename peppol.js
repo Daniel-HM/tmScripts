@@ -676,9 +676,7 @@
             <details style="margin-bottom: 10px;">
                 <summary style="cursor: pointer; font-weight: bold; font-size: 12px; margin-bottom: 5px;">📋 Laad Klantenlijst</summary>
                 <textarea id="peppol-json-input" placeholder='Plak JSON array hier, bijv.:
-[12345, 67890]
-of
-[{"klantnummer": 12345}]' style="width: 100%; height: 100px; font-size: 11px; padding: 5px; margin-top: 5px; font-family: monospace;"></textarea>
+[12345, 67890]' style="width: 100%; height: 100px; font-size: 11px; padding: 5px; margin-top: 5px; font-family: monospace;"></textarea>
                 <button id="peppol-load" style="width: 100%; padding: 6px; background: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer; margin-top: 5px; font-size: 11px;">📁 Laad JSON</button>
             </details>
             <details>
