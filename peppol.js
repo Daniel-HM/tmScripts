@@ -1,12 +1,13 @@
 // ==UserScript==
-// @name         Intratuin Peppol Connection Automation
+// @name         Peppol Verbinding Automatisering
 // @namespace    http://tampermonkey.net/
-// @version      2.9
-// @description  Automate Peppol connection for business customers with phone validation and detailed tracking
+// @version      3.0
+// @description  Automatiseer Peppol verbinding voor zakelijke klanten met telefoonnummer validatie en gedetailleerde tracking
 // @author       Daniel
 // @match        https://rs-intratuin.axi.nl/ordsp/f?p=108011:1:*
 // @match        https://rs-intratuin.axi.nl/ordsp/f?p=108011:100:*
 // @match        https://rs-intratuin.axi.nl/ordsp/f?p=KLANT_KLANTEN_RS*
+// @match        file:///C:/Users/d/Desktop/Tampermonkey/*
 // @downloadURL  https://raw.githubusercontent.com/Daniel-HM/tmScripts/refs/heads/main/peppol.js
 // @updateURL    https://raw.githubusercontent.com/Daniel-HM/tmScripts/refs/heads/main/peppol.js
 // @grant        GM_setValue
@@ -18,14 +19,14 @@
 (function() {
     'use strict';
 
-    // Configuration
+    // Configuratie
     const CONFIG = {
-        // Search page (page 1)
+        // Zoekpagina (pagina 1)
         searchInput: '#P1_KLANR',
         searchButton: 'button[onclick*="apex.submit({request:\'SEARCH\'})"]',
         firstResultLink: 'td.t-Report-cell a[href*="P100_DEKEYCE"]',
 
-        // Detail page (page 100)
+        // Detailpagina (pagina 100)
         phoneField1: '#P100_DEMBLNR',
         phoneField2: '#P100_DETELNR',
         btwField: '#P100_DEKLBTW',
@@ -36,15 +37,15 @@
         // URLs
         searchPageUrl: 'https://rs-intratuin.axi.nl/ordsp/f?p=108011:1:',
 
-        // Delays (in milliseconds)
+        // Vertragingen (in milliseconden)
         delayAfterSearch: 1000,
         delayBeforeConnect: 300,
         delayAfterConnect: 500,
         delayBetweenChecks: 500,
         delayBeforeReturnToSearch: 500,
 
-        // Lock timeout (milliseconds)
-        processingLockTimeout: 30000 // 30 seconds
+        // Vergrendeling timeout (milliseconden)
+        processingLockTimeout: 30000 // 30 seconden
     };
 
     // Debug logging helper
@@ -58,7 +59,7 @@
         }
     }
 
-    // Result tracking categories
+    // Resultaat tracking categorieën
     const RESULT_TYPES = {
         SUCCESS: 'success',
         SKIPPED_NO_BTW: 'skipped_no_btw',
@@ -67,7 +68,7 @@
         ERROR: 'error'
     };
 
-    // State management
+    // Status beheer
     const STATE = {
         get currentIndex() { return GM_getValue('peppol_currentIndex', 0); },
         set currentIndex(val) { GM_setValue('peppol_currentIndex', val); },
@@ -81,7 +82,7 @@
         get processedCount() { return GM_getValue('peppol_processedCount', 0); },
         set processedCount(val) { GM_setValue('peppol_processedCount', val); },
 
-        // Processing lock with timestamp
+        // Vergrendeling met tijdstempel
         get isProcessing() { return GM_getValue('peppol_isProcessing', false); },
         set isProcessing(val) {
             GM_setValue('peppol_isProcessing', val);
@@ -92,25 +93,25 @@
 
         get processingTimestamp() { return GM_getValue('peppol_processingTimestamp', 0); },
 
-        // Detailed result tracking
+        // Gedetailleerde resultaat tracking
         get results() { return JSON.parse(GM_getValue('peppol_results', '[]')); },
         set results(val) { GM_setValue('peppol_results', JSON.stringify(val)); },
 
-        // Need to re-check after connect
+        // Moet opnieuw controleren na verbinden
         get needsRecheck() { return GM_getValue('peppol_needsRecheck', false); },
         set needsRecheck(val) { GM_setValue('peppol_needsRecheck', val); },
 
-        // Track last processed client to prevent duplicate processing
+        // Bijhouden van laatst verwerkte klant om dubbele verwerking te voorkomen
         get lastProcessedClient() { return GM_getValue('peppol_lastProcessed', ''); },
         set lastProcessedClient(val) { GM_setValue('peppol_lastProcessed', val); }
     };
 
-    // Check if processing lock is stale and clear it
+    // Controleer of verwerkingsvergrendeling verlopen is en wis deze
     function checkAndClearStaleLock() {
         if (STATE.isProcessing) {
             const lockAge = Date.now() - STATE.processingTimestamp;
             if (lockAge > CONFIG.processingLockTimeout) {
-                log(`⚠️ Processing lock is stale (${Math.round(lockAge/1000)}s old), clearing it`);
+                log(`Verwerkingsvergrendeling is verlopen (${Math.round(lockAge/1000)}s oud), wordt gewist`);
                 STATE.isProcessing = false;
                 return true;
             }
@@ -118,14 +119,14 @@
         return false;
     }
 
-    // Manually clear processing lock
+    // Handmatig vergrendeling wissen
     function clearProcessingLock() {
-        log('🔓 Manually clearing processing lock');
+        log('Verwerkingsvergrendeling handmatig gewist');
         STATE.isProcessing = false;
         updateControlPanel();
     }
 
-    // Add result to tracking
+    // Voeg resultaat toe aan tracking
     function addResult(clientNumber, resultType, message = '') {
         const results = STATE.results;
         results.push({
@@ -135,10 +136,10 @@
             timestamp: new Date().toISOString()
         });
         STATE.results = results;
-        log(`📝 Result recorded: ${clientNumber} - ${resultType}`, message);
+        log(`Resultaat vastgelegd: ${clientNumber} - ${resultType}`, message);
     }
 
-    // Get counts by result type
+    // Krijg aantallen per resultaattype
     function getResultCounts() {
         const results = STATE.results;
         return {
@@ -151,51 +152,48 @@
         };
     }
 
-    // Export results to CSV
-    function exportResultsToCSV() {
-        const results = STATE.results;
-        if (results.length === 0) {
-            alert('No results to export');
+    // Exporteer niet-geregistreerde klanten naar JSON
+    function exportNotRegisteredToJSON() {
+        const notRegistered = getNotRegisteredClients();
+        if (notRegistered.length === 0) {
+            alert('Geen "Klant geen Peppol" resultaten om te exporteren');
             return;
         }
 
-        let csv = 'Klantnummer,Result Type,Message,Timestamp\n';
-        results.forEach(r => {
-            csv += `"${r.clientNumber}","${r.resultType}","${r.message}","${r.timestamp}"\n`;
-        });
-
-        const blob = new Blob([csv], { type: 'text/csv' });
+        const jsonData = JSON.stringify(notRegistered, null, 2);
+        const blob = new Blob([jsonData], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `peppol_results_${new Date().toISOString().split('T')[0]}.csv`;
+        a.download = `peppol_niet_geregistreerd_${new Date().toISOString().split('T')[0]}.json`;
         a.click();
-        log('📥 CSV exported');
+        log(`JSON geëxporteerd met ${notRegistered.length} niet-geregistreerde klanten`);
     }
 
-    // Get list of not registered clients
+
+    // Krijg lijst van niet-geregistreerde klanten
     function getNotRegisteredClients() {
         return STATE.results
             .filter(r => r.resultType === RESULT_TYPES.NOT_REGISTERED)
             .map(r => r.clientNumber);
     }
 
-    // Utility functions
+    // Hulpfuncties
     function waitForElement(selector, timeout = 10000) {
         return new Promise((resolve, reject) => {
             const existing = document.querySelector(selector);
             if (existing) {
-                log(`✓ Element found immediately: ${selector}`);
+                log(`Element direct gevonden: ${selector}`);
                 return resolve(existing);
             }
 
-            log(`⏳ Waiting for element: ${selector}`);
+            log(`Wachten op element: ${selector}`);
 
             const observer = new MutationObserver(() => {
                 const el = document.querySelector(selector);
                 if (el) {
                     observer.disconnect();
-                    log(`✓ Element appeared: ${selector}`);
+                    log(`Element verschenen: ${selector}`);
                     resolve(el);
                 }
             });
@@ -207,35 +205,35 @@
 
             setTimeout(() => {
                 observer.disconnect();
-                log(`❌ Timeout waiting for: ${selector}`);
-                reject(new Error(`Timeout waiting for: ${selector}`));
+                log(`Timeout wachten op: ${selector}`);
+                reject(new Error(`Timeout wachten op: ${selector}`));
             }, timeout);
         });
     }
 
     const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-    // Wait for APEX page to finish loading
+    // Wacht tot APEX pagina klaar is met laden
     function waitForApexReady(timeout = 15000) {
         return new Promise((resolve) => {
             const startTime = Date.now();
 
             const checkReady = () => {
-                // Check if page has finished loading indicators
+                // Controleer of pagina klaar is met laden
                 const loadingIndicators = document.querySelectorAll('.apex-page-loader, .u-Processing');
                 const hasLoadingIndicators = loadingIndicators.length > 0;
 
-                // Check for jQuery animations
+                // Controleer op jQuery animaties
                 const hasAnimations = typeof $ !== 'undefined' && $(':animated').length > 0;
 
-                if (!hasLoadingIndicators && !hasAnimations) {
-                    log('✓ Page ready (no loading indicators)');
+                if (!loadingIndicators && !hasAnimations) {
+                    log('Pagina klaar (geen laadindicatoren)');
                     resolve();
                     return;
                 }
 
                 if (Date.now() - startTime > timeout) {
-                    log('⚠️ Timeout waiting for page ready, continuing anyway');
+                    log('Timeout wachten op pagina, doorgaan');
                     resolve();
                     return;
                 }
@@ -252,7 +250,7 @@
         if (url.includes(':1:') || url.includes('f?p=KLANT_KLANTEN_RS:1')) return 'search';
         if (url.includes(':100:') || url.includes('f?p=KLANT_KLANTEN_RS:100')) return 'detail';
 
-        // Fallback: check for specific elements
+        // Terugval: controleer op specifieke elementen
         if (document.querySelector(CONFIG.searchInput)) return 'search';
         if (document.querySelector(CONFIG.btwField)) return 'detail';
 
@@ -268,60 +266,60 @@
         return currentClient.klantnummer || currentClient.clientNumber || currentClient;
     }
 
-    // Search page handler
+    // Zoekpagina handler
     async function handleSearchPage() {
-        log('🔍 === SEARCH PAGE HANDLER STARTED ===');
+        log('=== ZOEKPAGINA HANDLER GESTART ===');
 
         if (!STATE.isRunning) {
-            log('⏸️ Not running, exiting');
+            log('Niet actief, afsluiten');
             return;
         }
 
         if (STATE.isProcessing) {
-            log('⚠️ Already processing, skipping to prevent duplicate execution');
+            log('Al aan het verwerken, overslaan om dubbele uitvoering te voorkomen');
             return;
         }
 
         STATE.isProcessing = true;
-        log('🔒 Processing lock acquired');
+        log('Verwerkingsvergrendeling verkregen');
 
         try {
             const clients = STATE.clientList;
             const index = STATE.currentIndex;
 
-            log(`📊 Progress: ${index}/${clients.length}`);
+            log(`Voortgang: ${index}/${clients.length}`);
 
             if (index >= clients.length) {
-                log('✅ All clients processed!');
+                log('Alle klanten verwerkt!');
                 STATE.isRunning = false;
                 STATE.isProcessing = false;
                 updateControlPanel();
 
                 const counts = getResultCounts();
-                alert(`Automation Complete!\n\n` +
-                    `Total Processed: ${counts.total}\n` +
-                    `✅ Successfully Connected: ${counts.success}\n` +
-                    `⏭️ Skipped (No BTW): ${counts.skippedNoBtw}\n` +
-                    `⏭️ Already Connected: ${counts.alreadyConnected}\n` +
-                    `⚠️ Not Registered in Peppol: ${counts.notRegistered}\n` +
-                    `❌ Errors: ${counts.errors}\n\n` +
-                    `Click "Export Results" to download detailed CSV`);
+                alert(`Automatisering Voltooid!\n\n` +
+                    `Totaal Verwerkt: ${counts.total}\n` +
+                    `Succesvol Verbonden: ${counts.success}\n` +
+                    `Overgeslagen (Geen BTW): ${counts.skippedNoBtw}\n` +
+                    `Reeds Verbonden: ${counts.alreadyConnected}\n` +
+                    `Niet Geregistreerd in Peppol: ${counts.notRegistered}\n` +
+                    `Fouten: ${counts.errors}\n\n` +
+                    `Klik op "Export klant geen Pepppol" om gedetailleerde resultaten te downloaden`);
                 return;
             }
 
             const clientNumber = getCurrentClientNumber();
             const resultsVisible = document.querySelector(CONFIG.firstResultLink);
             if (STATE.lastProcessedClient === clientNumber && resultsVisible) {
-                log(`✓ Results already visible for ${clientNumber}, clicking first result`);
-                STATE.lastProcessedClient = ''; // Clear so we can move to next
+                log(`Resultaten al zichtbaar voor ${clientNumber}, eerste resultaat aanklikken`);
+                STATE.lastProcessedClient = '';
                 await delay(200);
                 resultsVisible.click();
-                log('✓ Clicked first result, navigating to detail');
+                log('Eerste resultaat aangeklikt, navigeren naar detail');
                 return;
             }
 
             if (STATE.lastProcessedClient === clientNumber && !resultsVisible) {
-                log(`⏭️ Already searched ${clientNumber} but no results, skipping`);
+                log(`Al gezocht naar ${clientNumber} maar geen resultaten, overslaan`);
                 STATE.currentIndex++;
                 STATE.lastProcessedClient = '';
                 STATE.isProcessing = false;
@@ -330,60 +328,60 @@
                 return;
             }
 
-            log(`🎯 Processing client ${index + 1}/${clients.length}: ${clientNumber}`);
+            log(`Klant verwerken ${index + 1}/${clients.length}: ${clientNumber}`);
             STATE.lastProcessedClient = clientNumber;
             updateControlPanel();
 
-            // Fill search field
+            // Vul zoekveld in
             const searchInput = document.querySelector(CONFIG.searchInput);
             if (!searchInput) {
-                throw new Error('Search input not found');
+                throw new Error('Zoekveld niet gevonden');
             }
-            log('✓ Search input found');
+            log('Zoekveld gevonden');
 
             searchInput.value = clientNumber;
             searchInput.dispatchEvent(new Event('input', { bubbles: true }));
             searchInput.dispatchEvent(new Event('change', { bubbles: true }));
-            log(`✓ Search field filled with: ${clientNumber}`);
+            log(`Zoekveld ingevuld met: ${clientNumber}`);
 
             await delay(500);
 
-            // Click search button
+            // Klik zoekknop
             const searchBtn = document.querySelector(CONFIG.searchButton);
             if (!searchBtn) {
-                throw new Error('Search button not found');
+                throw new Error('Zoekknop niet gevonden');
             }
-            log('✓ Search button found');
+            log('Zoekknop gevonden');
 
             searchBtn.click();
-            log('🔍 Search button clicked');
+            log('Zoekknop aangeklikt');
 
-            // Wait for APEX to process and show results
+            // Wacht tot APEX zoekresultaten toont
             await delay(CONFIG.delayAfterSearch);
             await waitForApexReady();
-            log('✓ Search results ready');
+            log('Zoekresultaten klaar');
 
-            // Wait for and click first result
+            // Wacht op en klik eerste resultaat
             const firstResult = await waitForElement(CONFIG.firstResultLink, 15000);
-            log('✓ First result link found');
+            log('Eerste resultaat link gevonden');
 
             await delay(500);
 
-            log('🖱️ Clicking first result link');
+            log('Eerste resultaat link aanklikken');
 
-            // Clear processing lock BEFORE clicking (critical!)
+            // Wis verwerkingsvergrendeling VOOR het klikken (kritiek!)
             STATE.isProcessing = false;
-            log('🔓 Processing lock released BEFORE clicking link');
+            log('Verwerkingsvergrendeling vrijgegeven VOOR het klikken op link');
 
             firstResult.click();
-            log('✓ First result clicked, navigating to detail page');
+            log('Eerste resultaat aangeklikt, navigeren naar detailpagina');
 
         } catch (error) {
-            log('❌ ERROR in search page handler:', error.message);
-            console.error('Full error:', error);
+            log('FOUT in zoekpagina handler:', error.message);
+            console.error('Volledige fout:', error);
 
             const clientNumber = getCurrentClientNumber();
-            addResult(clientNumber, RESULT_TYPES.ERROR, `Search error: ${error.message}`);
+            addResult(clientNumber, RESULT_TYPES.ERROR, `Zoekfout: ${error.message}`);
             STATE.currentIndex++;
             STATE.isProcessing = false;
             STATE.lastProcessedClient = '';
@@ -393,46 +391,46 @@
         }
     }
 
-    // Detail page handler
+    // Detailpagina handler
     async function handleDetailPage() {
-        log('📋 === DETAIL PAGE HANDLER STARTED ===');
+        log('=== DETAILPAGINA HANDLER GESTART ===');
 
         if (!STATE.isRunning) {
-            log('⏸️ Not running, exiting');
+            log('Niet actief, afsluiten');
             return;
         }
 
         if (STATE.isProcessing && !STATE.needsRecheck) {
-            log('⚠️ Already processing (not a recheck), skipping');
+            log('Al aan het verwerken (geen hercontrole), overslaan');
             return;
         }
 
         if (!STATE.needsRecheck) {
             STATE.isProcessing = true;
-            log('🔒 Processing lock acquired');
+            log('Verwerkingsvergrendeling verkregen');
         }
 
         const clientNumber = getCurrentClientNumber();
-        log(`📋 Processing detail page for: ${clientNumber}`);
-        log(`🔄 Recheck mode: ${STATE.needsRecheck}`);
+        log(`Detailpagina verwerken voor: ${clientNumber}`);
+        log(`Hercontrole modus: ${STATE.needsRecheck}`);
 
         try {
             await delay(500);
             await waitForApexReady();
 
-            // Check BTW field first
+            // Controleer eerst BTW veld
             const btwField = document.querySelector(CONFIG.btwField);
             if (!btwField) {
-                throw new Error('BTW field not found - page may not be fully loaded');
+                throw new Error('BTW veld niet gevonden - pagina mogelijk niet volledig geladen');
             }
-            log('✓ BTW field found');
+            log('BTW veld gevonden');
 
             const btwValue = btwField.value.trim();
-            log(`📄 BTW value: "${btwValue}"`);
+            log(`BTW waarde: "${btwValue}"`);
 
             if (!btwValue || btwValue === '') {
-                log('⏭️ Skipping - No BTW number (private customer)');
-                addResult(clientNumber, RESULT_TYPES.SKIPPED_NO_BTW, 'No BTW number present');
+                log('Overslaan - Geen BTW nummer (particuliere klant)');
+                addResult(clientNumber, RESULT_TYPES.SKIPPED_NO_BTW, 'Geen BTW nummer aanwezig');
                 STATE.currentIndex++;
                 STATE.processedCount++;
                 STATE.isProcessing = false;
@@ -441,27 +439,27 @@
                 return;
             }
 
-            log(`✓ BTW number present: ${btwValue}`);
+            log(`BTW nummer aanwezig: ${btwValue}`);
 
-            // If we just connected and need to recheck status
+            // Als we net verbonden hebben en status moeten hercontroleren
             if (STATE.needsRecheck) {
-                log('🔄 Recheck mode - verifying Peppol status after connection');
+                log('Hercontrole modus - Peppol status verifiëren na verbinding');
                 STATE.needsRecheck = false;
                 await checkPeppolStatus(clientNumber, btwValue);
                 return;
             }
 
-            // Check if already connected to Peppol
+            // Controleer of al verbonden met Peppol
             const peppolStatus = document.querySelector(CONFIG.peppolStatusField);
             if (!peppolStatus) {
-                log('⚠️ Peppol status field not found');
+                log('Peppol status veld niet gevonden');
             } else {
                 const statusText = peppolStatus.textContent.trim();
-                log(`📊 Current Peppol status: "${statusText}"`);
+                log(`Huidige Peppol status: "${statusText}"`);
 
                 if (statusText === 'Ja') {
-                    log('⏭️ Already connected to Peppol');
-                    addResult(clientNumber, RESULT_TYPES.SKIPPED_ALREADY_CONNECTED, 'Already connected to Peppol');
+                    log('Al verbonden met Peppol');
+                    addResult(clientNumber, RESULT_TYPES.SKIPPED_ALREADY_CONNECTED, 'Al verbonden met Peppol');
                     STATE.currentIndex++;
                     STATE.processedCount++;
                     STATE.isProcessing = false;
@@ -471,64 +469,64 @@
                 }
             }
 
-            // Check phone fields
+            // Controleer telefoonnummer velden
             const phone1 = document.querySelector(CONFIG.phoneField1);
             const phone2 = document.querySelector(CONFIG.phoneField2);
 
             if (!phone1 || !phone2) {
-                throw new Error('Phone fields not found');
+                throw new Error('Telefoonnummer velden niet gevonden');
             }
-            log('✓ Phone fields found');
+            log('Telefoonnummer velden gevonden');
 
             const hasPhone1 = phone1.value && phone1.value.trim() !== '';
             const hasPhone2 = phone2.value && phone2.value.trim() !== '';
-            log(`📞 Phone1: "${phone1.value}" (has value: ${hasPhone1})`);
-            log(`📞 Phone2: "${phone2.value}" (has value: ${hasPhone2})`);
+            log(`Telefoon1: "${phone1.value}" (heeft waarde: ${hasPhone1})`);
+            log(`Telefoon2: "${phone2.value}" (heeft waarde: ${hasPhone2})`);
 
-            // If neither phone field has a value, fill with placeholder
+            // Als geen van beide telefoonnummer velden een waarde heeft, vul met placeholder
             if (!hasPhone1 && !hasPhone2) {
-                log('📞 No phone numbers found, adding placeholder "0"');
+                log('Geen telefoonnummers gevonden, placeholder "0" toevoegen');
                 phone1.value = '0';
                 phone1.dispatchEvent(new Event('input', { bubbles: true }));
                 phone1.dispatchEvent(new Event('change', { bubbles: true }));
-                log('✓ Placeholder added to phone1');
+                log('Placeholder toegevoegd aan telefoon1');
                 await delay(CONFIG.delayBeforeConnect);
             } else {
-                log('✓ Phone number(s) already present');
+                log('Telefoonnummer(s) al aanwezig');
             }
 
-            // Click Peppol connect button
+            // Klik Peppol verbindingsknop
             const connectBtn = document.querySelector(CONFIG.peppolConnectButton);
             if (!connectBtn) {
-                throw new Error('Peppol connect button not found');
+                throw new Error('Peppol verbindingsknop niet gevonden');
             }
-            log('✓ Connect button found');
+            log('Verbindingsknop gevonden');
 
-            log('🔗 Clicking "Koppelen aan Peppol" button...');
+            log('"Koppelen aan Peppol" knop aanklikken...');
             connectBtn.click();
 
-            // Mark that we need to recheck after the page reloads
+            // Markeer dat we na herladen opnieuw moeten controleren
             STATE.needsRecheck = true;
-            log('🔄 Recheck flag set - will verify status after navigation');
+            log('Hercontrole ingesteld - zal status verifiëren na navigatie');
 
-            // Clear processing lock BEFORE navigation
+            // Wis verwerkingsvergrendeling VOOR navigatie
             STATE.isProcessing = false;
-            log('🔓 Processing lock released before navigation');
+            log('Verwerkingsvergrendeling vrijgegeven voor navigatie');
 
             await delay(CONFIG.delayAfterConnect);
             await waitForApexReady();
-            log('⏳ Waited after connect click');
+            log('Gewacht na verbindingsknop klik');
 
-            // The connect button returns to search page, so navigate back to client
-            log('🔙 Navigating back to client to verify status');
+            // De verbindingsknop gaat terug naar zoekpagina, dus navigeer terug naar klant
+            log('Navigeren terug naar klant om status te verifiëren');
             await navigateToClient(clientNumber);
 
         } catch (error) {
-            log('❌ ERROR in detail page handler:', error.message);
-            console.error('Full error:', error);
+            log('FOUT in detailpagina handler:', error.message);
+            console.error('Volledige fout:', error);
 
             const clientNumber = getCurrentClientNumber();
-            addResult(clientNumber, RESULT_TYPES.ERROR, `Detail page error: ${error.message}`);
+            addResult(clientNumber, RESULT_TYPES.ERROR, `Detailpagina fout: ${error.message}`);
             STATE.currentIndex++;
             STATE.processedCount++;
             STATE.isProcessing = false;
@@ -538,9 +536,9 @@
         }
     }
 
-    // Check Peppol connection status after connecting
+    // Controleer Peppol verbindingsstatus na verbinden
     async function checkPeppolStatus(clientNumber, btwValue) {
-        log('🔍 === CHECKING PEPPOL STATUS ===');
+        log('=== PEPPOL STATUS CONTROLEREN ===');
 
         try {
             await delay(CONFIG.delayBetweenChecks);
@@ -549,39 +547,39 @@
             const peppolMessage = document.querySelector(CONFIG.peppolMessageField);
 
             if (!peppolStatus) {
-                throw new Error('Peppol status field not found during verification');
+                throw new Error('Peppol status veld niet gevonden tijdens verificatie');
             }
 
             const statusText = peppolStatus.textContent.trim();
             const messageText = peppolMessage ? peppolMessage.textContent.trim() : '';
 
-            log(`📊 Status after connection: "${statusText}"`);
-            log(`💬 Message: "${messageText}"`);
+            log(`Status na verbinding: "${statusText}"`);
+            log(`Bericht: "${messageText}"`);
 
             if (statusText === 'Ja') {
-                log('✅ Successfully connected to Peppol!');
-                addResult(clientNumber, RESULT_TYPES.SUCCESS, 'Connected to Peppol');
-            } else if (messageText.includes('Customer is not registered in Peppol with CBE number')) {
-                log('⚠️ Customer not registered in Peppol yet');
-                addResult(clientNumber, RESULT_TYPES.NOT_REGISTERED, `Not registered in Peppol (BTW: ${btwValue})`);
+                log('Succesvol verbonden met Peppol!');
+                addResult(clientNumber, RESULT_TYPES.SUCCESS, 'Verbonden met Peppol');
+            } else if (messageText.includes('Customer is not registered in Peppol')) {
+                log('Klant nog niet geregistreerd in Peppol');
+                addResult(clientNumber, RESULT_TYPES.NOT_REGISTERED, `Niet geregistreerd in Peppol (BTW: ${btwValue})`);
             } else {
-                log('❓ Unexpected status after connection');
-                addResult(clientNumber, RESULT_TYPES.ERROR, `Unexpected status: ${statusText}, message: ${messageText}`);
+                log('Onverwachte status na verbinding');
+                addResult(clientNumber, RESULT_TYPES.ERROR, `Onverwachte status: ${statusText}, bericht: ${messageText}`);
             }
 
             STATE.currentIndex++;
             STATE.processedCount++;
             STATE.isProcessing = false;
             STATE.lastProcessedClient = '';
-            log('✓ Status check complete, moving to next client');
+            log('Statuscontrole compleet, naar volgende klant');
 
             await returnToSearch();
 
         } catch (error) {
-            log('❌ ERROR checking Peppol status:', error.message);
-            console.error('Full error:', error);
+            log('FOUT bij controleren Peppol status:', error.message);
+            console.error('Volledige fout:', error);
 
-            addResult(clientNumber, RESULT_TYPES.ERROR, `Status check failed: ${error.message}`);
+            addResult(clientNumber, RESULT_TYPES.ERROR, `Statuscontrole mislukt: ${error.message}`);
             STATE.currentIndex++;
             STATE.processedCount++;
             STATE.isProcessing = false;
@@ -590,25 +588,25 @@
         }
     }
 
-// Navigate to a specific client
+    // Navigeer naar een specifieke klant
     async function navigateToClient(clientNumber) {
-        log(`🔄 Navigating back to search to re-open client: ${clientNumber}`);
+        log(`Terug navigeren naar zoeken om klant te heropenen: ${clientNumber}`);
 
         const match = window.location.href.match(/f\?p=\d+:\d+:(\d+)/);
         const sessionId = match ? match[1] : null;
         if (sessionId) {
             const searchUrl = `https://rs-intratuin.axi.nl/ordsp/f?p=108011:1:${sessionId}`;
-            log(`🔗 Navigating to: ${searchUrl}`);
+            log(`Navigeren naar: ${searchUrl}`);
             window.location.href = searchUrl;
         } else {
-            log('⚠️ Could not extract session ID, reloading page');
+            log('Kon sessie-ID niet extraheren, pagina herladen');
             window.location.reload();
         }
     }
 
-// Return to search page
+    // Terug naar zoekpagina
     async function returnToSearch() {
-        log('🔙 Returning to search page');
+        log('Terug naar zoekpagina');
         updateControlPanel();
 
         await delay(CONFIG.delayBeforeReturnToSearch);
@@ -618,15 +616,15 @@
 
         if (sessionId) {
             const searchUrl = `https://rs-intratuin.axi.nl/ordsp/f?p=108011:1:${sessionId}`;
-            log(`🔗 Navigating to: ${searchUrl}`);
+            log(`Navigeren naar: ${searchUrl}`);
             window.location.href = searchUrl;
         } else {
-            log('⚠️ Could not extract session ID, reloading');
+            log('Kon sessie-ID niet extraheren, herladen');
             window.location.reload();
         }
     }
 
-    // Create control panel
+    // Maak controlepaneel
     function createControlPanel() {
         const panel = document.createElement('div');
         panel.id = 'peppol-automation-panel';
@@ -653,7 +651,7 @@
 
         panel.innerHTML = `
             <div style="margin-bottom: 10px; font-size: 13px;">
-                <strong>Progress:</strong> <span id="peppol-progress">0/0</span><br>
+                <strong>Voortgang:</strong> <span id="peppol-progress">0/0</span><br>
                 <div style="margin-top: 5px;">
                     <progress id="peppol-progressbar" value="0" max="100" style="width: 100%; height: 20px;"></progress>
                 </div>
@@ -663,44 +661,44 @@
                 <strong style="color: #9ca3af;">Geen zakelijke klant:</strong> <span id="peppol-skipped-btw">${counts.skippedNoBtw}</span><br>
                 <strong style="color: #9ca3af;">Reeds verbonden:</strong> <span id="peppol-skipped-connected">${counts.alreadyConnected}</span><br>
                 <strong style="color: #f59e0b;">Klant geen Peppol:</strong> <span id="peppol-not-registered">${counts.notRegistered}</span><br>
-                <strong style="color: #dc2626;">Errors:</strong> <span id="peppol-errors">${counts.errors}</span><br>
+                <strong style="color: #dc2626;">Fouten:</strong> <span id="peppol-errors">${counts.errors}</span><br>
                 <hr style="margin: 8px 0;">
-                <strong>Status:</strong> <span id="peppol-status">Idle</span><br>
+                <strong>Status:</strong> <span id="peppol-status">Inactief</span><br>
             </div>
             <div style="display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 5px;">
-                <button id="peppol-start" style="flex: 1; padding: 8px; background: #16a34a; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px;">▶ Start</button>
-                <button id="peppol-pause" style="flex: 1; padding: 8px; background: #f59e0b; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px;">⏸ Pause</button>
+                <button id="peppol-toggle" style="flex: 1; padding: 8px; background: #16a34a; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px;">▶ Start</button>
             </div>
             <div style="display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 10px;">
-                <button id="peppol-unlock" style="flex: 1; padding: 6px; background: #8b5cf6; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px;">🔓 Unlock</button>
-                <button id="peppol-reset" style="flex: 1; padding: 6px; background: #dc2626; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px;">🔄 Reset</button>
-                <button id="peppol-export" style="flex: 1; padding: 6px; background: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px;">📥 Export</button>
+                <button id="peppol-reset" style="flex: 1; padding: 6px; background: #dc2626; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px;">🔄 Alles Resetten</button>
+                <button id="peppol-export" style="flex: 1; padding: 6px; background: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px;">📥 Export klant geen Peppol(JSON)</button>
             </div>
+            
             <details style="margin-bottom: 10px;">
-                <summary style="cursor: pointer; font-weight: bold; font-size: 12px; margin-bottom: 5px;">📋 Load Client List</summary>
-                <textarea id="peppol-json-input" placeholder='Paste JSON array here, e.g.:
-["12345", "67890"]
-or
-[{"klantnummer": "12345"}]' style="width: 100%; height: 100px; font-size: 11px; padding: 5px; margin-top: 5px; font-family: monospace;"></textarea>
-                <button id="peppol-load" style="width: 100%; padding: 6px; background: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer; margin-top: 5px; font-size: 11px;">📁 Load JSON</button>
+                <summary style="cursor: pointer; font-weight: bold; font-size: 12px; margin-bottom: 5px;">📋 Laad Klantenlijst</summary>
+                <textarea id="peppol-json-input" placeholder='Plak JSON array hier, bijv.:
+[12345, 67890]
+of
+[{"klantnummer": 12345}]' style="width: 100%; height: 100px; font-size: 11px; padding: 5px; margin-top: 5px; font-family: monospace;"></textarea>
+                <button id="peppol-load" style="width: 100%; padding: 6px; background: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer; margin-top: 5px; font-size: 11px;">📁 Laad JSON</button>
             </details>
             <details>
-                <summary style="cursor: pointer; font-weight: bold; font-size: 12px;">📊 Not Registered List</summary>
+                <summary style="cursor: pointer; font-weight: bold; font-size: 12px;">📊 Niet Geregistreerd Lijst</summary>
                 <div id="peppol-not-reg-list" style="margin-top: 5px; font-size: 11px; max-height: 150px; overflow-y: auto; background: #f3f4f6; padding: 8px; border-radius: 4px;">
-                    <em style="color: #6b7280;">No data yet</em>
+                    <em style="color: #6b7280;">Nog geen data</em>
                 </div>
             </details>
         `;
 
         document.body.appendChild(panel);
-        // Make panel draggable
+
+        // Maak paneel versleepbaar
         function makeDraggable(panel) {
             let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
 
             panel.onmousedown = dragMouseDown;
 
             function dragMouseDown(e) {
-                // Only drag if clicking the header area
+                // Alleen slepen als je op het header gebied klikt
                 if (e.target.tagName === 'BUTTON' || e.target.tagName === 'TEXTAREA' ||
                     e.target.tagName === 'INPUT' || e.target.tagName === 'SUMMARY') {
                     return;
@@ -732,20 +730,20 @@ or
                 document.onmouseup = null;
                 document.onmousemove = null;
 
-                // Save position
+                // Bewaar positie
                 GM_setValue('peppol_panel_top', panel.offsetTop);
                 GM_setValue('peppol_panel_left', panel.offsetLeft);
-                log(`💾 Panel position saved: top=${panel.offsetTop}, left=${panel.offsetLeft}`);
+                log(`Paneelpositie opgeslagen: top=${panel.offsetTop}, left=${panel.offsetLeft}`);
             }
         }
 
         makeDraggable(panel);
         attachPanelListeners();
         updateControlPanel();
-        log('✓ Control panel created');
+        log('✓ Controlepaneel aangemaakt');
     }
 
-    // Update control panel
+    // Update controlepaneel
     function updateControlPanel() {
         const clients = STATE.clientList;
         const index = STATE.currentIndex;
@@ -770,17 +768,17 @@ or
         if (errorsEl) errorsEl.textContent = counts.errors;
 
         const statusEl = document.getElementById('peppol-status');
-        if (statusEl) statusEl.textContent = STATE.isRunning ? '🟢 Running' : '⚪ Paused';
+        if (statusEl) statusEl.textContent = STATE.isRunning ? '🟢 Actief' : '⚪ Gepauzeerd';
 
-        const processingEl = document.getElementById('peppol-processing-status');
-        if (processingEl) {
-            if (STATE.isProcessing) {
-                const lockAge = Math.round((Date.now() - STATE.processingTimestamp) / 1000);
-                processingEl.textContent = `🔒 Locked (${lockAge}s)`;
-                processingEl.style.color = lockAge > 10 ? '#dc2626' : '#f59e0b';
+        // Update wisselknop
+        const toggleBtn = document.getElementById('peppol-toggle');
+        if (toggleBtn) {
+            if (STATE.isRunning) {
+                toggleBtn.textContent = '⏸ Pauzeer';
+                toggleBtn.style.background = '#f59e0b';
             } else {
-                processingEl.textContent = '🔓 Unlocked';
-                processingEl.style.color = '#16a34a';
+                toggleBtn.textContent = '▶ Start';
+                toggleBtn.style.background = '#16a34a';
             }
         }
 
@@ -789,7 +787,7 @@ or
             progressBar.value = (index / clients.length) * 100;
         }
 
-        // Update not registered list
+        // Update niet-geregistreerd lijst
         const notRegList = document.getElementById('peppol-not-reg-list');
         if (notRegList) {
             const notRegistered = getNotRegisteredClients();
@@ -798,63 +796,67 @@ or
                     `<div style="padding: 2px 0;">${num}</div>`
                 ).join('');
             } else {
-                notRegList.innerHTML = '<em style="color: #6b7280;">No unregistered clients yet</em>';
+                notRegList.innerHTML = '<em style="color: #6b7280;">Nog geen niet-geregistreerde klanten</em>';
             }
         }
     }
 
-    // Attach event listeners
+    // Koppel event listeners
     function attachPanelListeners() {
-        document.getElementById('peppol-start').addEventListener('click', async () => {
-            if (STATE.clientList.length === 0) {
-                alert('⚠️ Please load client list JSON first');
-                return;
-            }
-
-            log('▶️ START button clicked');
-            STATE.isRunning = true;
-            STATE.isProcessing = false;
-            STATE.lastProcessedClient = '';
-            updateControlPanel();
-
-            const page = getCurrentPage();
-            log(`📍 Current page: ${page}`);
-
-            if (page === 'search') {
-                await handleSearchPage();
-            } else if (page === 'detail') {
-                await handleDetailPage();
-            } else {
-                log('❌ Unknown page type, please navigate to search page');
-                alert('Please navigate to the search page first');
-            }
-        });
-
-        document.getElementById('peppol-pause').addEventListener('click', () => {
-            log('⏸️ PAUSE button clicked');
-            STATE.isRunning = false;
-            STATE.isProcessing = false;
-            STATE.needsRecheck = false;
-            STATE.lastProcessedClient = '';
-            updateControlPanel();
-        });
-
-        document.getElementById('peppol-unlock').addEventListener('click', () => {
-            clearProcessingLock();
-        });
-
-        document.getElementById('peppol-reset').addEventListener('click', () => {
-            if (confirm('⚠️ Reset all progress and results? This cannot be undone!')) {
-                log('🔄 RESET button confirmed');
-                STATE.currentIndex = 0;
-                STATE.processedCount = 0;
-                STATE.results = [];
+        document.getElementById('peppol-toggle').addEventListener('click', async () => {
+            if (STATE.isRunning) {
+                // Pauzeer
+                log('PAUZEER knop aangeklikt');
                 STATE.isRunning = false;
                 STATE.isProcessing = false;
                 STATE.needsRecheck = false;
                 STATE.lastProcessedClient = '';
                 updateControlPanel();
-                alert('🔄 Progress reset. Results cleared.');
+            } else {
+                // Start
+                if (STATE.clientList.length === 0) {
+                    alert('Eerst een klantenlijst laden, aub :-)');
+                    return;
+                }
+
+                log('START knop aangeklikt');
+                STATE.isRunning = true;
+                STATE.isProcessing = false;
+                STATE.lastProcessedClient = '';
+                updateControlPanel();
+
+                const page = getCurrentPage();
+                log(`Huidige pagina: ${page}`);
+
+                if (page === 'search') {
+                    await handleSearchPage();
+                } else if (page === 'detail') {
+                    await handleDetailPage();
+                } else {
+                    log('Onbekend paginatype, navigeer naar de zoekpagina');
+                    alert('Navigeer eerst naar de zoekpagina');
+                }
+            }
+        });
+
+        document.getElementById('peppol-reset').addEventListener('click', () => {
+            if (confirm('Alles resetten (voortgang, resultaten en geladen klantenlijst)? Dit kan niet ongedaan worden gemaakt!')) {
+                log('VOLLEDIGE RESET bevestigd');
+                STATE.currentIndex = 0;
+                STATE.processedCount = 0;
+                STATE.results = [];
+                STATE.clientList = [];
+                STATE.isRunning = false;
+                STATE.isProcessing = false;
+                STATE.needsRecheck = false;
+                STATE.lastProcessedClient = '';
+
+                // Wis ook het tekstveld
+                const jsonInput = document.getElementById('peppol-json-input');
+                if (jsonInput) jsonInput.value = '';
+
+                updateControlPanel();
+                alert('Alles gereset. Alle data gewist.');
             }
         });
 
@@ -862,7 +864,7 @@ or
             const jsonText = document.getElementById('peppol-json-input').value.trim();
 
             if (!jsonText) {
-                alert('⚠️ Please paste JSON in the text area');
+                alert('Plak JSON in het tekstveld');
                 return;
             }
 
@@ -871,43 +873,44 @@ or
                 const clients = Array.isArray(data) ? data : [data];
 
                 if (clients.length === 0) {
-                    alert('⚠️ JSON array is empty');
+                    alert('JSON array is leeg');
                     return;
                 }
 
                 STATE.clientList = clients;
-                log(`📁 Loaded ${clients.length} clients`);
-                alert(`✅ Loaded ${clients.length} clients`);
+                log(`${clients.length} klanten geladen`);
+                alert(`${clients.length} klanten geladen`);
                 updateControlPanel();
             } catch(e) {
-                log('❌ JSON parse error:', e.message);
-                alert('❌ Invalid JSON format: ' + e.message);
+                log('JSON parse fout:', e.message);
+                alert('Ongeldig JSON formaat: ' + e.message);
             }
         });
 
         document.getElementById('peppol-export').addEventListener('click', () => {
-            exportResultsToCSV();
+            exportNotRegisteredToJSON();
         });
+
     }
 
-    // Initialize
+    // Initialiseer
     function init() {
         log('='.repeat(50));
-        log('🚀 Peppol Automation v2.2 Initializing');
-        log(`📍 Current URL: ${window.location.href}`);
-        log(`📄 Page detected as: ${getCurrentPage()}`);
-        log(`▶️ isRunning: ${STATE.isRunning}`);
-        log(`🔒 isProcessing: ${STATE.isProcessing}`);
-        log(`🔄 needsRecheck: ${STATE.needsRecheck}`);
-        log(`📊 Current index: ${STATE.currentIndex}/${STATE.clientList.length}`);
+        log('Peppol Automatisering v3.0 Initialiseren');
+        log(`Huidige URL: ${window.location.href}`);
+        log(`Pagina gedetecteerd als: ${getCurrentPage()}`);
+        log(`▶isRunning: ${STATE.isRunning}`);
+        log(`isProcessing: ${STATE.isProcessing}`);
+        log(`needsRecheck: ${STATE.needsRecheck}`);
+        log(`Huidige index: ${STATE.currentIndex}/${STATE.clientList.length}`);
 
         STATE.isProcessing = false;
-        log('🔓 Processing lock cleared on page load');
+        log('Verwerkingsvergrendeling gewist bij pagina laden');
 
-        // Check and clear stale processing lock
+        // Controleer en wis verlopen vergrendeling
         const wasStale = checkAndClearStaleLock();
         if (wasStale) {
-            log('✓ Stale lock cleared');
+            log('Verlopen vergrendeling gewist');
         }
 
         log('='.repeat(50));
@@ -916,24 +919,24 @@ or
             createControlPanel();
         }
 
-        // Continue automation if it was running and not processing
+        // Ga door met automatisering als deze actief was en niet aan het verwerken
         if (STATE.isRunning && !STATE.isProcessing) {
             const page = getCurrentPage();
-            log(`▶️ Continuing automation on ${page} page`);
+            log(`Automatisering voortzetten op ${page} pagina`);
 
             if (page === 'search') {
                 setTimeout(() => handleSearchPage(), 2500);
             } else if (page === 'detail') {
                 setTimeout(() => handleDetailPage(), 2500);
             } else {
-                log('⚠️ Unknown page type, cannot continue automation');
+                log('Onbekend paginatype, kan automatisering niet voortzetten');
             }
         } else if (STATE.isProcessing) {
-            log('⚠️ Processing lock still active - use Unlock button if stuck');
+            log('Verwerkingsvergrendeling nog steeds actief');
         }
     }
 
-    // Start after page load
+    // Start na pagina laden
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
     } else {
