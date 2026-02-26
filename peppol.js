@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Peppol Verbinding Automatisering
 // @namespace    http://tampermonkey.net/
-// @version      4.2
+// @version      4.3
 // @description  Automatiseer Peppol verbinding voor zakelijke klanten met telefoonnummer validatie en gedetailleerde tracking. Klant deactivatie module inbegrepen.
 // @author       Daniel
 // @match        https://rs-intratuin.axi.nl/ordsp/f?p=108011:1:*
@@ -44,7 +44,9 @@
         deactivateBefore: new Date(2022, 11, 31),
 
         // Peppol CBE herpoging
-        cbeRetryEnabled: false,               // CBE herpoging inschakelen via checkbox in UI
+        // cbeRetryEnabled wordt gelezen/geschreven via GM_getValue/GM_setValue (overleeft paginaladingen)
+        get cbeRetryEnabled() { return GM_getValue('peppol_cbeRetryEnabled', false); },
+        set cbeRetryEnabled(val) { GM_setValue('peppol_cbeRetryEnabled', val); },
         peppolIdentifierTypeField: '#P100_PEPPOL_IDENTIFIER_TYPE',
 
         // URLs
@@ -1210,7 +1212,7 @@
 
             document.getElementById('peppol-cbe-retry').addEventListener('change', (e) => {
                 CONFIG.cbeRetryEnabled = e.target.checked;
-                log(`CBE herpoging ${CONFIG.cbeRetryEnabled ? 'ingeschakeld' : 'uitgeschakeld'}`);
+                log(`CBE herpoging ${CONFIG.cbeRetryEnabled ? 'ingeschakeld' : 'uitgeschakeld'} (opgeslagen)`);
             });
 
         } else {
