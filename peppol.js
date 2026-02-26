@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Peppol Verbinding Automatisering
 // @namespace    http://tampermonkey.net/
-// @version      4.3
+// @version      4.4
 // @description  Automatiseer Peppol verbinding voor zakelijke klanten met telefoonnummer validatie en gedetailleerde tracking. Klant deactivatie module inbegrepen.
 // @author       Daniel
 // @match        https://rs-intratuin.axi.nl/ordsp/f?p=108011:1:*
@@ -186,7 +186,18 @@
         set deactLastProcessedClient(val) { GM_setValue('deact_lastProcessed', val); },
 
         get deactPhase() { return GM_getValue('deact_phase', 'search'); },
-        set deactPhase(val) { GM_setValue('deact_phase', val); }
+        set deactPhase(val) { GM_setValue('deact_phase', val); },
+
+        // Timer state – opgeslagen in ms epoch zodat ze paginaladingen overleven
+        get peppolStartTime() { return GM_getValue('peppol_startTime', 0); },
+        set peppolStartTime(val) { GM_setValue('peppol_startTime', val); },
+        get peppolElapsed() { return GM_getValue('peppol_elapsed', 0); },   // ms vóór pauze
+        set peppolElapsed(val) { GM_setValue('peppol_elapsed', val); },
+
+        get deactStartTime() { return GM_getValue('deact_startTime', 0); },
+        set deactStartTime(val) { GM_setValue('deact_startTime', val); },
+        get deactElapsed() { return GM_getValue('deact_elapsed', 0); },
+        set deactElapsed(val) { GM_setValue('deact_elapsed', val); }
     };
 
     // ─── Hulpfuncties ─────────────────────────────────────────────────────────
@@ -215,6 +226,99 @@
         STATE.needsCbeConnect = false;
         STATE.needsCbeRecheck = false;
         STATE.cbeOriginalValue = '';
+    }
+
+
+    // ─── Timer hulpfuncties ───────────────────────────────────────────────────
+    // Één interval-handle gedeeld door beide modules (alleen actieve tikt)
+    let _timerInterval = null;
+
+    function formatElapsed(ms) {
+        const totalSec = Math.floor(ms / 1000);
+        const h = Math.floor(totalSec / 3600);
+        const m = Math.floor((totalSec % 3600) / 60);
+        const s = totalSec % 60;
+        const pad = n => String(n).padStart(2, '0');
+        return h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+    }
+
+    function getTotalElapsed(startTime, savedElapsed) {
+        if (!startTime) return savedElapsed;
+        return savedElapsed + (Date.now() - startTime);
+    }
+
+    function startTimer(isPeppol) {
+        if (isPeppol) { STATE.peppolStartTime = Date.now(); }
+        else { STATE.deactStartTime = Date.now(); }
+        _startTimerInterval();
+    }
+
+    function pauseTimer(isPeppol) {
+        if (isPeppol) {
+            if (STATE.peppolStartTime) {
+                STATE.peppolElapsed += Date.now() - STATE.peppolStartTime;
+                STATE.peppolStartTime = 0;
+            }
+        } else {
+            if (STATE.deactStartTime) {
+                STATE.deactElapsed += Date.now() - STATE.deactStartTime;
+                STATE.deactStartTime = 0;
+            }
+        }
+        _stopTimerInterval();
+    }
+
+    function resetTimer(isPeppol) {
+        if (isPeppol) { STATE.peppolStartTime = 0; STATE.peppolElapsed = 0; }
+        else { STATE.deactStartTime = 0; STATE.deactElapsed = 0; }
+        _stopTimerInterval();
+    }
+
+    function _startTimerInterval() {
+        if (_timerInterval) return;
+        _timerInterval = setInterval(_tickTimer, 1000);
+    }
+
+    function _stopTimerInterval() {
+        if (_timerInterval) { clearInterval(_timerInterval); _timerInterval = null; }
+    }
+
+    function _tickTimer() {
+        const mode = getMode();
+        if (mode === 'peppol') {
+            if (!STATE.isRunning) { _stopTimerInterval(); return; }
+            const ms = getTotalElapsed(STATE.peppolStartTime, STATE.peppolElapsed);
+            const el = document.getElementById('peppol-elapsed');
+            if (el) el.textContent = formatElapsed(ms);
+            _updateRate('peppol', ms);
+        } else if (mode === 'deactivation') {
+            if (!STATE.deactIsRunning) { _stopTimerInterval(); return; }
+            const ms = getTotalElapsed(STATE.deactStartTime, STATE.deactElapsed);
+            const el = document.getElementById('deact-elapsed');
+            if (el) el.textContent = formatElapsed(ms);
+            _updateRate('deact', ms);
+        }
+    }
+
+    function _updateRate(prefix, elapsedMs) {
+        const rateEl = document.getElementById(`${prefix}-rate`);
+        if (!rateEl) return;
+        const processed = prefix === 'peppol' ? STATE.currentIndex : STATE.deactCurrentIndex;
+        const minutes = elapsedMs / 60000;
+        if (minutes < 0.1 || processed === 0) { rateEl.textContent = '—'; return; }
+        rateEl.textContent = (processed / minutes).toFixed(1);
+    }
+
+    function renderTimerDisplay(prefix, elapsedMs) {
+        const el = document.getElementById(`${prefix}-elapsed`);
+        if (el) el.textContent = formatElapsed(elapsedMs);
+        _updateRate(prefix, elapsedMs);
+    }
+
+    function resumeTimerIfRunning() {
+        const mode = getMode();
+        if (mode === 'peppol' && STATE.isRunning && STATE.peppolStartTime) _startTimerInterval();
+        else if (mode === 'deactivation' && STATE.deactIsRunning && STATE.deactStartTime) _startTimerInterval();
     }
 
     function addResult(clientNumber, resultType, message = '') {
@@ -352,7 +456,10 @@
                 STATE.isProcessing = false;
                 updateControlPanel();
                 const counts = getResultCounts();
-                alert(`Automatisering Voltooid!\n\nTotaal Verwerkt: ${counts.total}\nSuccesvol Verbonden: ${counts.success}\nVerbonden via CBE/VAT wissel: ${counts.successViaCbe}\nOvergeslagen (Geen BTW): ${counts.skippedNoBtw}\nReeds Verbonden: ${counts.alreadyConnected}\nNiet Geregistreerd in Peppol: ${counts.notRegistered}\nFouten: ${counts.errors}\n\nKlik op "Export klant geen Peppol" om gedetailleerde resultaten te downloaden`);
+                const _pMs = getTotalElapsed(STATE.peppolStartTime, STATE.peppolElapsed);
+                const _pMin = _pMs / 60000;
+                const _pRate = (_pMin > 0.1 && counts.total > 0) ? (counts.total / _pMin).toFixed(1) : '—';
+                alert(`Automatisering Voltooid!\n\nTotaal Verwerkt: ${counts.total}\nSuccesvol Verbonden: ${counts.success}\nVerbonden via CBE/VAT wissel: ${counts.successViaCbe}\nOvergeslagen (Geen BTW): ${counts.skippedNoBtw}\nReeds Verbonden: ${counts.alreadyConnected}\nNiet Geregistreerd in Peppol: ${counts.notRegistered}\nFouten: ${counts.errors}\n\n⏱ Looptijd: ${formatElapsed(_pMs)}\n📊 Gemiddeld: ${_pRate} klanten/min\n\nKlik op "Export klant geen Peppol" om gedetailleerde resultaten te downloaden`);
                 return;
             }
 
@@ -685,7 +792,10 @@
                 STATE.deactIsProcessing = false;
                 updateControlPanel();
                 const counts = getDeactResultCounts();
-                alert(`Deactivatie Voltooid!\n\nTotaal Verwerkt: ${counts.total}\nGedeactiveerd: ${counts.deactivated}\nOvergeslagen (Recente aankoop): ${counts.skippedRecentPurchase}\nAl Inactief: ${counts.alreadyInactive}\nNiet Gevonden: ${counts.notFound}\nFouten: ${counts.errors}`);
+                const _dMs = getTotalElapsed(STATE.deactStartTime, STATE.deactElapsed);
+                const _dMin = _dMs / 60000;
+                const _dRate = (_dMin > 0.1 && counts.total > 0) ? (counts.total / _dMin).toFixed(1) : '—';
+                alert(`Deactivatie Voltooid!\n\nTotaal Verwerkt: ${counts.total}\nGedeactiveerd: ${counts.deactivated}\nOvergeslagen (Recente aankoop): ${counts.skippedRecentPurchase}\nAl Inactief: ${counts.alreadyInactive}\nNiet Gevonden: ${counts.notFound}\nFouten: ${counts.errors}\n\n⏱ Looptijd: ${formatElapsed(_dMs)}\n📊 Gemiddeld: ${_dRate} klanten/min`);
                 return;
             }
 
@@ -969,6 +1079,11 @@
                     <strong style="color: #dc2626;">Fouten:</strong> <span id="peppol-errors">${counts.errors}</span><br>
                     <hr style="margin: 8px 0;">
                     <strong>Status:</strong> <span id="peppol-status">Inactief</span>
+                    <hr style="margin: 8px 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; padding: 6px 8px;">
+                        <span>⏱ <strong id="peppol-elapsed">00:00</strong></span>
+                        <span style="color: #6b7280; font-size: 11px;"><strong id="peppol-rate">—</strong> klanten/min</span>
+                    </div>
                 </div>
                 <div style="display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 5px;">
                     <button id="peppol-toggle" style="flex: 1; padding: 8px; background: #16a34a; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px;">▶ Start</button>
@@ -1016,6 +1131,11 @@
                     <strong style="color: #dc2626;">Fouten:</strong> <span id="deact-errors">${counts.errors}</span><br>
                     <hr style="margin: 8px 0;">
                     <strong>Status:</strong> <span id="deact-status">Inactief</span>
+                    <hr style="margin: 8px 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; padding: 6px 8px;">
+                        <span>⏱ <strong id="deact-elapsed">00:00</strong></span>
+                        <span style="color: #6b7280; font-size: 11px;"><strong id="deact-rate">—</strong> klanten/min</span>
+                    </div>
                 </div>
                 <div style="display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 5px;">
                     <button id="deact-toggle" style="flex: 1; padding: 8px; background: #16a34a; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px;">▶ Start</button>
@@ -1102,6 +1222,9 @@
             const cbeCheckbox = document.getElementById('peppol-cbe-retry');
             if (cbeCheckbox) cbeCheckbox.checked = CONFIG.cbeRetryEnabled;
 
+            // Timer display
+            renderTimerDisplay('peppol', getTotalElapsed(STATE.peppolStartTime, STATE.peppolElapsed));
+
             const notRegList = document.getElementById('peppol-not-reg-list');
             if (notRegList) {
                 const notRegistered = getNotRegisteredClients();
@@ -1132,6 +1255,9 @@
 
             const progressBar = document.getElementById('deact-progressbar');
             if (progressBar && clients.length > 0) progressBar.value = (index / clients.length) * 100;
+
+            // Timer display
+            renderTimerDisplay('deact', getTotalElapsed(STATE.deactStartTime, STATE.deactElapsed));
 
             const resultList = document.getElementById('deact-result-list');
             if (resultList) {
@@ -1168,11 +1294,13 @@
                 if (STATE.isRunning) {
                     STATE.isRunning = false; STATE.isProcessing = false;
                     clearCbeState(); STATE.lastProcessedClient = '';
+                    pauseTimer(true);
                     updateControlPanel();
                 } else {
                     if (STATE.clientList.length === 0) { alert('Eerst een klantenlijst laden, aub :-)'); return; }
                     STATE.isRunning = true; STATE.isProcessing = false;
                     STATE.lastProcessedClient = '';
+                    startTimer(true);
                     updateControlPanel();
                     const page = getCurrentPage();
                     if (page === 'search') await handleSearchPage();
@@ -1188,6 +1316,7 @@
                     STATE.isRunning = false; STATE.isProcessing = false;
                     STATE.lastProcessedClient = '';
                     clearCbeState();
+                    resetTimer(true);
                     const jsonInput = document.getElementById('peppol-json-input');
                     if (jsonInput) jsonInput.value = '';
                     updateControlPanel();
@@ -1220,11 +1349,13 @@
                 if (STATE.deactIsRunning) {
                     STATE.deactIsRunning = false; STATE.deactIsProcessing = false;
                     STATE.deactLastProcessedClient = '';
+                    pauseTimer(false);
                     updateControlPanel();
                 } else {
                     if (STATE.deactClientList.length === 0) { alert('Eerst een klantenlijst laden, aub :-)'); return; }
                     STATE.deactIsRunning = true; STATE.deactIsProcessing = false;
                     STATE.deactLastProcessedClient = '';
+                    startTimer(false);
                     updateControlPanel();
                     const page = getCurrentPage();
                     if (page === 'search') await handleDeactSearchPage();
@@ -1238,6 +1369,7 @@
                     STATE.deactCurrentIndex = 0; STATE.deactResults = [];
                     STATE.deactClientList = []; STATE.deactIsRunning = false;
                     STATE.deactIsProcessing = false; STATE.deactLastProcessedClient = '';
+                    resetTimer(false);
                     const jsonInput = document.getElementById('deact-json-input');
                     if (jsonInput) jsonInput.value = '';
                     updateControlPanel();
@@ -1294,6 +1426,7 @@
             else if (page === 'detail') setTimeout(() => handleDeactDetailPage(), CONFIG.delayOnInit);
         }
 
+        resumeTimerIfRunning();
         log('='.repeat(50));
     }
 
