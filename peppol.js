@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Peppol Verbinding Automatisering
 // @namespace    http://tampermonkey.net/
-// @version      4.4
+// @version      4.5
 // @description  Automatiseer Peppol verbinding voor zakelijke klanten met telefoonnummer validatie en gedetailleerde tracking. Klant deactivatie module inbegrepen.
 // @author       Daniel
 // @match        https://rs-intratuin.axi.nl/ordsp/f?p=108011:1:*
@@ -103,6 +103,7 @@
     const RESULT_TYPES = {
         SUCCESS: 'success',
         SUCCESS_VIA_CBE: 'success_via_cbe',
+        SKIPPED_INACTIVE: 'skipped_inactive',
         SKIPPED_NO_BTW: 'skipped_no_btw',
         SKIPPED_ALREADY_CONNECTED: 'skipped_already_connected',
         NOT_REGISTERED: 'not_registered_in_peppol',
@@ -339,6 +340,7 @@
             total: results.length,
             success: results.filter(r => r.resultType === RESULT_TYPES.SUCCESS).length,
             successViaCbe: results.filter(r => r.resultType === RESULT_TYPES.SUCCESS_VIA_CBE).length,
+            skippedInactive: results.filter(r => r.resultType === RESULT_TYPES.SKIPPED_INACTIVE).length,
             skippedNoBtw: results.filter(r => r.resultType === RESULT_TYPES.SKIPPED_NO_BTW).length,
             alreadyConnected: results.filter(r => r.resultType === RESULT_TYPES.SKIPPED_ALREADY_CONNECTED).length,
             notRegistered: results.filter(r => r.resultType === RESULT_TYPES.NOT_REGISTERED).length,
@@ -459,7 +461,7 @@
                 const _pMs = getTotalElapsed(STATE.peppolStartTime, STATE.peppolElapsed);
                 const _pMin = _pMs / 60000;
                 const _pRate = (_pMin > 0.1 && counts.total > 0) ? (counts.total / _pMin).toFixed(1) : '—';
-                alert(`Automatisering Voltooid!\n\nTotaal Verwerkt: ${counts.total}\nSuccesvol Verbonden: ${counts.success}\nVerbonden via CBE/VAT wissel: ${counts.successViaCbe}\nOvergeslagen (Geen BTW): ${counts.skippedNoBtw}\nReeds Verbonden: ${counts.alreadyConnected}\nNiet Geregistreerd in Peppol: ${counts.notRegistered}\nFouten: ${counts.errors}\n\n⏱ Looptijd: ${formatElapsed(_pMs)}\n📊 Gemiddeld: ${_pRate} klanten/min\n\nKlik op "Export klant geen Peppol" om gedetailleerde resultaten te downloaden`);
+                alert(`Automatisering Voltooid!\n\nTotaal Verwerkt: ${counts.total}\nSuccesvol Verbonden: ${counts.success}\nVerbonden via CBE/VAT wissel: ${counts.successViaCbe}\nInactief (overgeslagen): ${counts.skippedInactive}\nOvergeslagen (Geen BTW): ${counts.skippedNoBtw}\nReeds Verbonden: ${counts.alreadyConnected}\nNiet Geregistreerd in Peppol: ${counts.notRegistered}\nFouten: ${counts.errors}\n\n⏱ Looptijd: ${formatElapsed(_pMs)}\n📊 Gemiddeld: ${_pRate} klanten/min\n\nKlik op "Export klant geen Peppol" om gedetailleerde resultaten te downloaden`);
                 return;
             }
 
@@ -588,6 +590,19 @@
             }
 
             // ── Eerste keer: basischecks ──────────────────────────────────
+            // Inactieve klant overslaan
+            const activeCheckbox = document.querySelector(CONFIG.activeCheckbox);
+            if (activeCheckbox && !activeCheckbox.checked) {
+                log(`Klant ${clientNumber} is inactief, overslaan`);
+                addResult(clientNumber, RESULT_TYPES.SKIPPED_INACTIVE, 'Klant is inactief');
+                STATE.currentIndex++;
+                STATE.processedCount++;
+                STATE.isProcessing = false;
+                STATE.lastProcessedClient = '';
+                await returnToSearch();
+                return;
+            }
+
             const peppolStatus = document.querySelector(CONFIG.peppolStatusField);
             if (peppolStatus && peppolStatus.textContent.trim() === 'Ja') {
                 addResult(clientNumber, RESULT_TYPES.SKIPPED_ALREADY_CONNECTED, 'Al verbonden met Peppol');
@@ -1073,6 +1088,7 @@
                 <div style="margin-bottom: 10px; font-size: 12px; line-height: 1.6;">
                     <strong style="color: #16a34a;">Verbonden:</strong> <span id="peppol-success">${counts.success}</span><br>
                     <strong style="color: #15803d;">Verbonden via CBE/VAT wissel:</strong> <span id="peppol-success-cbe">${counts.successViaCbe}</span><br>
+                    <strong style="color: #9ca3af;">Inactief (overgeslagen):</strong> <span id="peppol-skipped-inactive">${counts.skippedInactive}</span><br>
                     <strong style="color: #9ca3af;">Geen zakelijke klant:</strong> <span id="peppol-skipped-btw">${counts.skippedNoBtw}</span><br>
                     <strong style="color: #9ca3af;">Reeds verbonden:</strong> <span id="peppol-skipped-connected">${counts.alreadyConnected}</span><br>
                     <strong style="color: #f59e0b;">Klant geen Peppol:</strong> <span id="peppol-not-registered">${counts.notRegistered}</span><br>
@@ -1203,6 +1219,7 @@
             set('peppol-progress', `${index}/${clients.length}`);
             set('peppol-success', counts.success);
             set('peppol-success-cbe', counts.successViaCbe);
+            set('peppol-skipped-inactive', counts.skippedInactive);
             set('peppol-skipped-btw', counts.skippedNoBtw);
             set('peppol-skipped-connected', counts.alreadyConnected);
             set('peppol-not-registered', counts.notRegistered);
