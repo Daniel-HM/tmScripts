@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Peppol Verbinding Automatisering
 // @namespace    http://tampermonkey.net/
-// @version      4.5
+// @version      4.6
 // @description  Automatiseer Peppol verbinding voor zakelijke klanten met telefoonnummer validatie en gedetailleerde tracking. Klant deactivatie module inbegrepen.
 // @author       Daniel
 // @match        https://rs-intratuin.axi.nl/ordsp/f?p=108011:1:*
@@ -47,6 +47,10 @@
         // cbeRetryEnabled wordt gelezen/geschreven via GM_getValue/GM_setValue (overleeft paginaladingen)
         get cbeRetryEnabled() { return GM_getValue('peppol_cbeRetryEnabled', false); },
         set cbeRetryEnabled(val) { GM_setValue('peppol_cbeRetryEnabled', val); },
+
+        // Bewaren-eerst workaround voor Oracle bug (overleeft paginaladingen)
+        get presaveEnabled() { return GM_getValue('peppol_presaveEnabled', false); },
+        set presaveEnabled(val) { GM_setValue('peppol_presaveEnabled', val); },
         peppolIdentifierTypeField: '#P100_PEPPOL_IDENTIFIER_TYPE',
 
         // URLs
@@ -152,6 +156,9 @@
         set lastProcessedClient(val) { GM_setValue('peppol_lastProcessed', val); },
 
         // Peppol CBE herpoging state
+        get needsPresave() { return GM_getValue('peppol_needsPresave', false); },
+        set needsPresave(val) { GM_setValue('peppol_needsPresave', val); },
+
         get needsCbeSwitch() { return GM_getValue('peppol_needsCbeSwitch', false); },
         set needsCbeSwitch(val) { GM_setValue('peppol_needsCbeSwitch', val); },
 
@@ -222,6 +229,7 @@
     }
 
     function clearCbeState() {
+        STATE.needsPresave = false;
         STATE.needsRecheck = false;
         STATE.needsCbeSwitch = false;
         STATE.needsCbeConnect = false;
@@ -532,7 +540,7 @@
         if (!STATE.isRunning) { log('Niet actief, afsluiten'); return; }
 
         // Een van de herpoging-flags actief?
-        const anyRecheck = STATE.needsRecheck || STATE.needsCbeSwitch || STATE.needsCbeConnect || STATE.needsCbeRecheck;
+        const anyRecheck = STATE.needsPresave || STATE.needsRecheck || STATE.needsCbeSwitch || STATE.needsCbeConnect || STATE.needsCbeRecheck;
         if (STATE.isProcessing && !anyRecheck) { log('Al aan het verwerken, overslaan'); return; }
         if (!anyRecheck) { STATE.isProcessing = true; }
 
@@ -554,6 +562,33 @@
                 STATE.lastProcessedClient = '';
                 clearCbeState();
                 await returnToSearch();
+                return;
+            }
+
+            // ── Stap 0: Bewaren-eerst workaround (Oracle bug) ─────────────
+            if (STATE.needsPresave) {
+                log('Presave: terugkeren na dummy Bewaren, verdergaan met normale flow');
+                STATE.needsPresave = false;
+                // Val door naar basischecks hieronder (geen return)
+            } else if (CONFIG.presaveEnabled) {
+                log('Presave: dummy Bewaren uitvoeren voor Oracle bug workaround');
+                // Telefoonnummer check vóór opslaan
+                const psPhone1 = document.querySelector(CONFIG.phoneField1);
+                const psPhone2 = document.querySelector(CONFIG.phoneField2);
+                if (psPhone1 && psPhone2 && !psPhone1.value.trim() && !psPhone2.value.trim()) {
+                    psPhone1.value = '0';
+                    psPhone1.dispatchEvent(new Event('input', { bubbles: true }));
+                    psPhone1.dispatchEvent(new Event('change', { bubbles: true }));
+                    await delay(CONFIG.delayBeforeConnect);
+                }
+                const psBtn = findSaveButton();
+                if (!psBtn) throw new Error('Bewaren knop niet gevonden voor presave');
+                psBtn.click();
+                STATE.needsPresave = true;
+                STATE.isProcessing = false;
+                await delay(CONFIG.delayAfterSave);
+                await waitForApexReady();
+                await navigateToClient(clientNumber);
                 return;
             }
 
@@ -1108,12 +1143,19 @@
                     <button id="peppol-reset" style="flex: 1; padding: 6px; background: #dc2626; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px;">🔄 Alles Resetten</button>
                     <button id="peppol-export" style="flex: 1; padding: 6px; background: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px;">📥 Export geen Peppol (JSON)</button>
                 </div>
-                <div style="margin-bottom: 10px; padding: 8px; background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 4px; font-size: 12px;">
+                <div style="margin-bottom: 6px; padding: 8px; background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 4px; font-size: 12px;">
                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
                         <input type="checkbox" id="peppol-cbe-retry" ${CONFIG.cbeRetryEnabled ? 'checked' : ''} style="cursor: pointer; width: 14px; height: 14px;">
                         <span style="font-weight: bold;">🔄 CBE/VAT herpoging bij mislukking</span>
                     </label>
                     <div style="color: #6b7280; font-size: 11px; margin-top: 3px; padding-left: 20px;">Wisselt identifier type als eerste connect mislukt (~4 extra paginalaadtijden per klant)</div>
+                </div>
+                <div style="margin-bottom: 10px; padding: 8px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 4px; font-size: 12px;">
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" id="peppol-presave" ${CONFIG.presaveEnabled ? 'checked' : ''} style="cursor: pointer; width: 14px; height: 14px;">
+                        <span style="font-weight: bold;">💾 Bewaren-eerst (Oracle bug workaround)</span>
+                    </label>
+                    <div style="color: #6b7280; font-size: 11px; margin-top: 3px; padding-left: 20px;">Slaat eerst op vóór connect poging (+2 extra paginalaadtijden per klant)</div>
                 </div>
                 <details style="margin-bottom: 10px;">
                     <summary style="cursor: pointer; font-weight: bold; font-size: 12px; margin-bottom: 5px;">📋 Laad Klantenlijst</summary>
@@ -1238,6 +1280,8 @@
             // Sync CBE checkbox met CONFIG
             const cbeCheckbox = document.getElementById('peppol-cbe-retry');
             if (cbeCheckbox) cbeCheckbox.checked = CONFIG.cbeRetryEnabled;
+            const presaveCheckbox = document.getElementById('peppol-presave');
+            if (presaveCheckbox) presaveCheckbox.checked = CONFIG.presaveEnabled;
 
             // Timer display
             renderTimerDisplay('peppol', getTotalElapsed(STATE.peppolStartTime, STATE.peppolElapsed));
@@ -1359,6 +1403,11 @@
             document.getElementById('peppol-cbe-retry').addEventListener('change', (e) => {
                 CONFIG.cbeRetryEnabled = e.target.checked;
                 log(`CBE herpoging ${CONFIG.cbeRetryEnabled ? 'ingeschakeld' : 'uitgeschakeld'} (opgeslagen)`);
+            });
+
+            document.getElementById('peppol-presave').addEventListener('change', (e) => {
+                CONFIG.presaveEnabled = e.target.checked;
+                log(`Bewaren-eerst ${CONFIG.presaveEnabled ? 'ingeschakeld' : 'uitgeschakeld'} (opgeslagen)`);
             });
 
         } else {
